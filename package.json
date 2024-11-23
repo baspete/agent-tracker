@@ -1,16 +1,14 @@
 {
-  "name": "stirling-pi",
+  "name": "agent-tracker",
   "version": "1.0.0",
   "main": "app.js",
   "author": "pbutler@basdesign.com",
   "license": "MIT",
   "private": true,
   "dependencies": {
-    "axios": "^1.6.0",
-    "dayjs": "^1.11.6",
-    "dotenv": "^8.2.0",
-    "onoff": "^6.0.1",
-    "ssd1306-i2c-js": "^1.0.5"
+    "axios": "latest",
+    "dotenv": "latest",
+    "ssd1306-i2c-js": "latest"
   },
   "prettier": {
     "singleQuote": true

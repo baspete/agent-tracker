@@ -1,5 +1,4 @@
 const axios = require('axios');
-const Gpio = require('onoff').Gpio;
 const ssd1306 = require('ssd1306-i2c-js');
 
 // Grab our configuration
@@ -29,29 +28,6 @@ function avg(arr) {
   const total = arr.reduce((b, c) => b + c, 0);
   const avg = total / arr.length;
   return avg.toFixed(1);
-}
-
-/**
- * Affine transformation (y = mx + b)
- * Given a number, a domain and a range
- * this will do an affine transformation with stops
- * at range[0] and range[1]. Use this to figure out
- * how long the duty cycle should be.
- * @param {number} x
- * @param {array} domain - possible input value endpoints
- * @param {array} range - possible output value endpoints
- * @returns {number} y (rounded to 2 decimal places)
- */
-function calculateDutyCycleAffine(x, domain, range) {
-  let y =
-    ((range[1] - range[0]) / (domain[1] - domain[0])) * (x - domain[0]) +
-    range[0];
-  // Round to 2 decimal places
-  y = y.toFixed(2);
-  // Stops at range[0] and range[1]
-  y = y <= range[1] ? y : range[1];
-  y = y >= range[0] ? y : range[0];
-  return y;
 }
 
 /**
@@ -117,7 +93,7 @@ function updateDisplay(display, dataType, val, range) {
     Layer.Layer0
   );
 
-  // Render the meter
+  // Render the value
   // display.drawRect(0, 0, width, 12, Color.White, Layer.Layer0);
   // Render the text
   display.drawString(
@@ -144,9 +120,6 @@ if (
   const source = config.sources[dataType];
 
   // Set some defaults if not provided
-  const duty = config.duty || [0.2, 0.7];
-  const pwmInterval = config.pwmInterval || 2000; // ms
-  const heaterPin = config.heaterPin || 18; // physical pin 12
   const dataInterval = source.dataInterval || 60; // seconds
   const samplesToAverage = source.samplesToAverage || 1;
   let minMax = source.minMax || [0, 10]; // NOTE: mutable
@@ -155,31 +128,18 @@ if (
   // we can calculate a running average for noisy data.
   let history = [];
 
-  // Assign the heater to a GPIO pin
-  const heater = new Gpio(heaterPin, 'out');
-
   // If we've got a display, initialize it.
   // TODO: try https://github.com/perjg/oled_ssd1306_i2c
-  if (config.displayAddress) {
-    display = ssd1306.display;
-    Font = ssd1306.Font;
-    Color = ssd1306.Color;
-    Layer = ssd1306.Layer;
-    display.init(1, config.displayAddress);
-    display.setFont(Font.UbuntuMono_8ptFontInfo);
-    display.turnOn();
-    display.clearScreen();
-    // Render a starting value
-    updateDisplay(display, config.dataType, '--', minMax);
-  }
-
-  // This is the main PWM loop powering the heater, running continuously at 'interval' milliseconds
-  setInterval(() => {
-    heater.writeSync(1); // heater on
-    setTimeout(() => {
-      heater.writeSync(0); // heater off
-    }, calculateDutyCycleAffine(avg(history), minMax, duty) * pwmInterval);
-  }, pwmInterval);
+  display = ssd1306.display;
+  Font = ssd1306.Font;
+  Color = ssd1306.Color;
+  Layer = ssd1306.Layer;
+  display.init(1, config.displayAddress);
+  display.setFont(Font.UbuntuMono_8ptFontInfo);
+  display.turnOn();
+  display.clearScreen();
+  // Render a starting value
+  updateDisplay(display, config.dataType, '--', minMax);
 
   // This is the main data loop, running continuously at 'dataInterval' seconds
   setInterval(async () => {
@@ -203,9 +163,7 @@ if (
       history,
       'avg:',
       avg(history),
-      `(${minMax[0]}-${minMax[1]})`,
-      'duty cycle:',
-      calculateDutyCycleAffine(avg(history), minMax, duty)
+      `(${minMax[0]}-${minMax[1]})`
     );
 
     // Send something to the OLED display

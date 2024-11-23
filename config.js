@@ -1,18 +1,17 @@
 require('dotenv').config();
 const axios = require('axios');
-const dayjs = require('dayjs');
 
 const config = {
   // (optional) Min/Max duty cycle. duty[0] is the min required to keep
   // the stirling engine idling. duty[1] is the max to keep
   // it from spinning like a monkey on cocaine and throwing a rod.
-  duty: [0.4, 1],
+  // duty: [0.4, 1],
 
   // (optional) Length (ms) of each PWM interval.
-  pwmInterval: 100,
+  // pwmInterval: 100,
 
   // (optional) Heater control pin.
-  heaterPin: 18, // physical pin 12
+  // heaterPin: 18, // physical pin 12
 
   // (optional) I2C Display address
   displayAddress: 0x3c,
@@ -57,7 +56,6 @@ const config = {
         password: process.env.DEVOPS_PAT,
       },
       filter: function (response) {
-        console.log(response);
         let agents = response.data.value.filter((a) => {
           return (
             a.provisioningState === 'RunningRequest' ||
