@@ -1,34 +1,11 @@
-const axios = require('axios');
-const ssd1306 = require('ssd1306-i2c-js');
-
-// Grab our configuration
-const config = require('./config.js');
-
-// Default is no display
-let display,
-  Font,
-  Color,
-  Layer = null;
+import axios from 'axios';
+import dotenv from 'dotenv';
+dotenv.config();
+import {display, Font, Color, Layer } from 'ssd1306-i2c-js';
+import * as config from './config.js';
 
 // ***********************************************
 // FUNCTIONS
-
-/**
- * Given an array of numbers, calculate the average.
- * Rounds to 1 decimal place. Returns zero if arr is empty.
- * @param {array} arr
- * @returns {number}
- */
-function avg(arr) {
-  // If the array is empty, just return zero;
-  if (arr.length === 0) return 0;
-  // If the array has one value, just return that value;
-  if (arr.length === 1) return arr[0].toFixed(1);
-  // Otherwise average the values
-  const total = arr.reduce((b, c) => b + c, 0);
-  const avg = total / arr.length;
-  return avg.toFixed(1);
-}
 
 /**
  *
@@ -54,6 +31,8 @@ function getData(url, auth, filter) {
       });
   });
 }
+
+
 
 /**
  * @param {object} display An initialized display object
@@ -83,6 +62,7 @@ function updateDisplay(display, dataType, val, range) {
     1
   );
   display.clearScreen(); // Clear display buffer
+
   // Render the title
   display.drawString(
     titleStringStart,
@@ -116,8 +96,7 @@ if (
   config.sources[config.dataType] &&
   config.sources[config.dataType].url
 ) {
-  const dataType = config.dataType;
-  const source = config.sources[dataType];
+  const source = config.sources[config.dataType];
 
   // Set some defaults if not provided
   const dataInterval = source.dataInterval || 60; // seconds
@@ -128,16 +107,12 @@ if (
   // we can calculate a running average for noisy data.
   let history = [];
 
-  // If we've got a display, initialize it.
-  // TODO: try https://github.com/perjg/oled_ssd1306_i2c
-  display = ssd1306.display;
-  Font = ssd1306.Font;
-  Color = ssd1306.Color;
-  Layer = ssd1306.Layer;
+  console.log('Initializing display');
   display.init(1, config.displayAddress);
   display.setFont(Font.UbuntuMono_8ptFontInfo);
   display.turnOn();
-  display.clearScreen();
+  display.refresh();
+
   // Render a starting value
   updateDisplay(display, config.dataType, '--', minMax);
 
@@ -159,10 +134,8 @@ if (
 
     // Log something useful to the console
     console.info(
-      dataType,
+      config.dataType,
       history,
-      'avg:',
-      avg(history),
       `(${minMax[0]}-${minMax[1]})`
     );
 

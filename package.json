@@ -1,14 +1,16 @@
 {
   "name": "agent-tracker",
   "version": "1.0.0",
-  "main": "app.js",
   "author": "pbutler@basdesign.com",
   "license": "MIT",
+  "main": "app.js",
+  "type": "module",
   "private": true,
   "dependencies": {
     "axios": "latest",
     "dotenv": "latest",
-    "ssd1306-i2c-js": "latest"
+    "i2c-bus": "^5.2.3",
+    "ssd1306-i2c-js": "^1.0.5"
   },
   "prettier": {
     "singleQuote": true

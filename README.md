@@ -32,6 +32,14 @@ Once you've got your OS set up you'll need to install a few tools. SSH into your
 1. **Git** - Tutorial [here](https://linuxize.com/post/how-to-install-git-on-raspberry-pi/)
 1. **Yarn** - Not strictly needed, but faster than NPM. Instructions [here](https://classic.yarnpkg.com/en/docs/install).
 
+### Configure I2C
+
+This application depends on the [i2c-bus](https://github.com/fivdi/i2c-bus) package. You need to configure I2C on your Raspberry PI to use it. Follow the instructions here: 
+
+https://github.com/fivdi/i2c-bus/blob/master/doc/raspberry-pi-i2c.md#configuring-i2c-with-raspi-config
+
+(basically, go into raspi-config and enable I2C)
+
 ### Edit app.js and update the data source(s)
 
 (There's a super-handy VS Code plugin called [Remote - SSH](https://github.com/Microsoft/vscode-remote-release) that you can use to edit code on your Raspberry Pi from VS Code.)
