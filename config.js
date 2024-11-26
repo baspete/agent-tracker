@@ -14,15 +14,17 @@ dotenv.config();
 
 // (optional) I2C Display address
 export const displayAddress = 0x3c;
+export const displayWidth = 128;
+export const displayHeight = 64
 
-// Data sources, number of samples to average, interval, initial min/max guesses etc
+// Data sources, number of samples to show, interval, initial min/max guesses etc
 export const sources = {
   wind: {
     // this is required
     url: `https://swd.weatherflow.com/swd/rest/observations/station/${process.env.WEATHERFLOW_STATION_ID}?token=${process.env.WEATHERFLOW_TOKEN}`,
     // these are optional
     minMax: [0, 10],
-    samplesToAverage: 3, // super noisy, so let's use a longer history
+    samplesToShow: 10,
     dataInterval: 10,
     filter: function (response) {
       let val = response.data.obs[0]['wind_gust'];
@@ -34,7 +36,7 @@ export const sources = {
     url: `http://${process.env.PIAWARE_HOST}/dump1090-fa/data/aircraft.json`,
     // these are optional
     minMax: [0, 100],
-    samplesToAverage: 1,
+    samplesToShow: 10,
     dataInterval: 20,
     filter: function (response) {
       let aircraft = response.data.aircraft.filter((a) => {
@@ -48,7 +50,7 @@ export const sources = {
     url: `https://dev.azure.com/${process.env.DEVOPS_ORG}/_apis/distributedtask/pools/${process.env.AGENT_POOL_ID}/agents`,
     // these are optional
     minMax: [0, 20],
-    samplesToAverage: 1,
+    samplesToShow: 10,
     dataInterval: 15,
     auth: {
       username: '',
@@ -66,5 +68,3 @@ export const sources = {
   },
 };
 
-// (required) Which data source from the 'sources' map to use,
-export const dataType = 'agents';

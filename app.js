@@ -1,5 +1,5 @@
 import axios from 'axios';
-import dotenv from 'dotenv';
+import dotenv, { configDotenv } from 'dotenv';
 dotenv.config();
 import {display, Font, Color, Layer } from 'ssd1306-i2c-js';
 import * as config from './config.js';
@@ -32,7 +32,64 @@ function getData(url, auth, filter) {
   });
 }
 
+/**
+ * Affine transformation (y = mx + b)
+ * Given a number, a domain and a range
+ * this will do an affine transformation with stops
+ * at range[0] and range[1].
+ * @param {number} x
+ * @param {array} domain - possible input value endpoints
+ * @param {array} range - possible output value endpoints
+ * @returns {number} y (rounded to 2 decimal places)
+ */
+function affine(x, domain, range) {
+  let y =
+    ((range[1] - range[0]) / (domain[1] - domain[0])) * (x - domain[0]) +
+    range[0];
+  // Round to 2 decimal places
+  y = y.toFixed(2);
+  // Stops at range[0] and range[1]
+  y = y <= range[1] ? y : range[1];
+  y = y >= range[0] ? y : range[0];
+  return y;
+}
 
+function updateDisplay(display, label, values, range){
+  // display.drawPixel(x, y, color, layer);
+  // display.drawLine(x, y, x1, y1, color, layer);
+  // display.drawRect(x, y, w, h, color, layer);
+  // display.fillRect(x, y, w, h, color, layer);
+  // display.drawString(x:number, y:number, text, size, color, layer);
+  console.log(`Rendering: ${JSON.stringify(values)}}`)
+  display.clearScreen(); // Clear display buffer
+
+  // The text
+  display.drawString(
+    34, // left
+    0, // top
+    `${label.toUpperCase()}: ${values[values.length - 1].toString()}`, // string
+    1, // font size
+    Color.White,
+    Layer.Layer0
+  );
+
+  // The chart
+  const textHeight = 15; // The yellow stuff (leave 1 px for the top of the columns)
+  const columnHeight = config.displayHeight - textHeight;
+  const columnWidth = Math.floor(config.displayWidth / values.length);
+  values.forEach((value, index) => {
+    const x = (columnWidth * index);
+    const valHeight = affine(value, range, [0, columnHeight - 1]); // Leave a space at the bottom for the column bases
+    const colTop = config.displayHeight - valHeight;
+    // Fill the value columns
+    display.fillRect(x, colTop, columnWidth-1, valHeight ,Color.White, Layer.Layer0)
+    // Fill the column bases
+    display.fillRect(x, config.displayHeight-1, columnWidth-1, 1 ,Color.White, Layer.Layer0)
+
+  })
+
+  display.refresh();
+}
 
 /**
  * @param {object} display An initialized display object
@@ -40,72 +97,71 @@ function getData(url, auth, filter) {
  * @param {number} val The value to display (string or number)
  * @param {array} range The min/max values (array of two numbers)
  */
-function updateDisplay(display, dataType, val, range) {
-  // Don't bother if we don't have a display
-  if (!display) return;
-  // Make sure val is within range
-  if (val === null) {
-    val = range[0];
-  } else if (val < range[0]) {
-    val = range[0];
-  } else if (val > range[1]) {
-    val = range[1];
-  }
-  const fontSize = 5;
-  const valStr = val.toString();
-  // Where to start the value display
-  const dataStringStart = 64 - (valStr.length / 2) * 20;
-  const titleStringStart = 64 - (dataType.length / 2) * 5;
-  // The width of our top bar (at least one px)
-  const width = Math.max(
-    parseInt((128 * (val || range[0])) / range[1] - range[0]),
-    1
-  );
-  display.clearScreen(); // Clear display buffer
+// function updateDisplay(display, dataType, val, range) {
+//   // Make sure val is within range
+//   if (val === null) {
+//     val = range[0];
+//   } else if (val < range[0]) {
+//     val = range[0];
+//   } else if (val > range[1]) {
+//     val = range[1];
+//   }
+//   const fontSize = 5;
+//   const valStr = val.toString();
+//   // Where to start the value display
+//   const dataStringStart = 64 - (valStr.length / 2) * 20;
+//   const titleStringStart = 64 - (dataType.length / 2) * 5;
+//   // The width of our top bar (at least one px)
+//   const width = Math.max(
+//     parseInt((128 * (val || range[0])) / range[1] - range[0]),
+//     1
+//   );
+//   display.clearScreen(); // Clear display buffer
 
-  // Render the title
-  display.drawString(
-    titleStringStart,
-    0,
-    dataType.toUpperCase(),
-    1.5,
-    Color.White,
-    Layer.Layer0
-  );
+//   // Render the title
+//   display.drawString(
+//     titleStringStart,
+//     0,
+//     dataType.toUpperCase(),
+//     1.5,
+//     Color.White,
+//     Layer.Layer0
+//   );
 
-  // Render the value
-  // display.drawRect(0, 0, width, 12, Color.White, Layer.Layer0);
-  // Render the text
-  display.drawString(
-    dataStringStart,
-    17,
-    valStr,
-    fontSize,
-    Color.White,
-    Layer.Layer0
-  );
-  display.refresh();
-}
+//   // Render the value
+//   // display.drawRect(0, 0, width, 12, Color.White, Layer.Layer0);
+//   // Render the text
+//   display.drawString(
+//     dataStringStart,
+//     17,
+//     valStr,
+//     fontSize,
+//     Color.White,
+//     Layer.Layer0
+//   );
+//   display.refresh();
+// }
 
 // ***********************************************
 // STARTUP
 
 // Do we have what we need to run?
 if (
-  config.dataType &&
-  config.sources[config.dataType] &&
-  config.sources[config.dataType].url
+  display &&
+  process.env.DATA_TYPE &&
+  config.sources[process.env.DATA_TYPE] &&
+  config.sources[process.env.DATA_TYPE].url
 ) {
-  const source = config.sources[config.dataType];
+  const dataType = process.env.DATA_TYPE;
+  const source = config.sources[dataType];
 
   // Set some defaults if not provided
   const dataInterval = source.dataInterval || 60; // seconds
-  const samplesToAverage = source.samplesToAverage || 1;
+  const samplesToShow = source.samplesToShow || 10
   let minMax = source.minMax || [0, 10]; // NOTE: mutable
 
-  // This will hold the last few measurements, so
-  // we can calculate a running average for noisy data.
-  let history = [];
+  // Populate the history array with zeroes
+  let history = Array(samplesToShow).fill(0);
 
   console.log('Initializing display');
   display.init(1, config.displayAddress);
@@ -114,7 +170,7 @@ if (
   display.refresh();
 
   // Render a starting value
-  updateDisplay(display, config.dataType, '--', minMax);
+  updateDisplay(display, dataType, history, minMax);
 
   // This is the main data loop, running continuously at 'dataInterval' seconds
   setInterval(async () => {
@@ -127,20 +183,13 @@ if (
     // Update the history array
     history.push(val);
 
-    // Keep only the last `samplesToAverage` values
-    if (history.length > samplesToAverage) {
+    // Keep only the last `samplesToShow values
+    if (history.length > samplesToShow) {
       history.shift();
     }
 
-    // Log something useful to the console
-    console.info(
-      config.dataType,
-      history,
-      `(${minMax[0]}-${minMax[1]})`
-    );
-
     // Send something to the OLED display
-    updateDisplay(display, config.dataType, val, minMax);
+    updateDisplay(display, dataType, history, minMax);
 
     // If there's a callback, pass it the value
     if (source.callback) {
