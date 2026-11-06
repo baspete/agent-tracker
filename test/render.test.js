@@ -8,7 +8,8 @@ const config = { samples: 10, scaleMax: 20 };
 
 function headerRegionEquals(fb, expectedText) {
   const expected = new Framebuffer();
-  expected.drawText(0, 1, expectedText, 2);
+  const textW = expectedText.length * 6 - 1;
+  expected.drawText(Math.floor((WIDTH - textW) / 2), 4, expectedText, 1);
   for (let y = 0; y < 16; y++) {
     for (let x = 0; x < WIDTH; x++) {
       if (fb.getPixel(x, y) !== expected.getPixel(x, y)) return false;
@@ -29,6 +30,24 @@ test('header shows AGENTS value', () => {
   const fb = new Framebuffer();
   renderFrame(fb, { history: [3], lastValue: 3, lastError: null }, config);
   assert.ok(headerRegionEquals(fb, 'AGENTS 3'));
+});
+
+test('header text is centered in the 16px header band', () => {
+  const fb = new Framebuffer();
+  renderFrame(fb, { history: [], lastValue: 15, lastError: null }, config);
+  let minX = WIDTH, maxX = -1, minY = 16, maxY = -1;
+  for (let y = 0; y < 16; y++) {
+    for (let x = 0; x < WIDTH; x++) {
+      if (!fb.getPixel(x, y)) continue;
+      minX = Math.min(minX, x);
+      maxX = Math.max(maxX, x);
+      minY = Math.min(minY, y);
+      maxY = Math.max(maxY, y);
+    }
+  }
+  assert.ok(Math.abs(minX - (WIDTH - 1 - maxX)) <= 1, `x ${minX}..${maxX}`);
+  assert.ok(maxY - minY <= 6, 'text is at most 7px tall (scale 1)');
+  assert.ok(minY >= 3 && maxY <= 12, `y ${minY}..${maxY}`);
 });
 
 test('header shows AGENTS -- when no value yet', () => {

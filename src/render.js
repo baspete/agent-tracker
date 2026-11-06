@@ -1,6 +1,10 @@
 import { WIDTH } from './framebuffer.js';
+import { CELL_WIDTH } from './font5x7.js';
 
 const CHART_TOP = 16;
+const HEADER_HEIGHT = 16;
+const TEXT_SCALE = 1;
+const GLYPH_HEIGHT = 7;
 const BASELINE_ROW = 63;
 const MAX_BAR_HEIGHT = 47;
 
@@ -16,7 +20,14 @@ function headerText(state) {
 
 export function renderFrame(fb, state, config) {
   fb.clear();
-  fb.drawText(0, 1, headerText(state), 2);
+  const text = headerText(state);
+  const textW = text.length * CELL_WIDTH * TEXT_SCALE - TEXT_SCALE;
+  fb.drawText(
+    Math.max(0, Math.floor((WIDTH - textW) / 2)),
+    Math.floor((HEADER_HEIGHT - GLYPH_HEIGHT * TEXT_SCALE) / 2),
+    text,
+    TEXT_SCALE
+  );
 
   const samples = config.samples;
   const history = state.history;
