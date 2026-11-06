@@ -6,11 +6,15 @@
   "main": "app.js",
   "type": "module",
   "private": true,
-  "dependencies": {
-    "axios": "latest",
-    "dotenv": "latest",
-    "i2c-bus": "^5.2.3",
-    "ssd1306-i2c-js": "^1.0.5"
+  "engines": {
+    "node": ">=20.12"
+  },
+  "scripts": {
+    "start": "node app.js",
+    "test": "node --test"
+  },
+  "optionalDependencies": {
+    "i2c-bus": "5.2.3"
   },
   "prettier": {
     "singleQuote": true

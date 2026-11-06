@@ -1,0 +1,37 @@
+[Unit]
+Description=Azure DevOps agent pool tracker (SSD1306 OLED)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+SupplementaryGroups=i2c
+WorkingDirectory=/home/pi/agent-tracker
+ExecStart=/usr/bin/node --max-old-space-size=96 app.js
+Restart=always
+RestartSec=10
+RestartPreventExitStatus=78
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+PrivateDevices=no
+DevicePolicy=closed
+DeviceAllow=/dev/i2c-1 rw
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+LockPersonality=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+MemoryMax=200M
+
+[Install]
+WantedBy=multi-user.target
