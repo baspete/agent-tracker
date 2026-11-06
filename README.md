@@ -27,19 +27,85 @@ sudo apt install i2c-tools
 i2cdetect -y 1
 ```
 
-## Install
+## Provision the Pi
 
-Requires Node.js >= 20.12 and yarn v1. On the Pi:
+From the Mac (requires Node >= 20.12 and yarn v1 already on the Pi):
 
 ```
-git clone <this repo> /home/pi/agent-tracker
-cd /home/pi/agent-tracker
-yarn install --frozen-lockfile
+scripts/provision.sh [host]        # default: pi@agent-tracker.local
 ```
+
+It is idempotent and, as root on the Pi:
+
+- checks architecture (arm/aarch64) and Debian bookworm, Node >= 20.12, yarn
+- installs missing apt packages (`build-essential`, `python3`, `i2c-tools`)
+- enables I2C if needed (prints REBOOT REQUIRED)
+- creates the `agent-tracker` system user (nologin, group `i2c`)
+- creates `/opt/agent-tracker` (pi:pi) and `/etc/agent-tracker` (root:agent-tracker)
+- installs `/etc/agent-tracker/env` from your old `.env` or the template
+- installs and enables the systemd unit
+- disables Wi-Fi power save (`wifi.powersave = 2`), restarting NetworkManager
+  a few seconds after the script finishes so SSH doesn't drop mid-run
+- enables the hardware watchdog (`RuntimeWatchdogSec=15`)
+- caps journald at 200M
 
 The only dependency, `i2c-bus`, is a native optional dependency. A build
 failure on non-Linux machines is expected and harmless — use
 `DISPLAY_DRIVER=console` for local dev.
+
+## Deploy
+
+```
+scripts/deploy.sh [host]           # default: $DEPLOY_HOST or pi@agent-tracker.local
+scripts/deploy.sh --status [host]
+scripts/deploy.sh --rollback [host]
+```
+
+A deploy refuses to run on a dirty working tree, runs the test suite, then:
+
+1. `git archive`s HEAD into a new release dir
+   `/opt/agent-tracker/releases/<UTC timestamp>-<shortsha>/`
+2. reuses `node_modules` if `yarn.lock` is unchanged, then
+   `yarn install --frozen-lockfile --production`
+3. verifies `i2c-bus` actually loads (it's an optionalDependency, so yarn can
+   hide build failures)
+4. flips the `current` symlink atomically (`previous` points at the old one)
+   and restarts the service
+5. health-checks for up to 60s: the service must be active and log a line
+   starting `agents busy:`. On failure it prints the journal tail and rolls
+   back to `previous` automatically.
+6. prunes old releases, keeping `current`, `previous` and the 3 newest.
+
+`--rollback` swaps `current`/`previous` manually; `--status` shows the links,
+releases, service state and recent log lines.
+
+## Secrets
+
+The PAT lives in `/etc/agent-tracker/env` (root:agent-tracker 0640), loaded by
+systemd `EnvironmentFile`. To rotate:
+
+```
+sudo -e /etc/agent-tracker/env
+sudo systemctl restart agent-tracker
+```
+
+## Logs
+
+```
+journalctl -u agent-tracker -f
+```
+
+## Migrating from the old pm2/git-clone setup
+
+```
+pm2 delete app
+pm2 save --force
+sudo pm2 unstartup systemd -u pi --hp /home/pi
+rm ~/.pm2/logs/app-*.log
+```
+
+Then run `scripts/provision.sh` and `scripts/deploy.sh`, and once the new
+deploy is verified, remove the old `~/agent-tracker` clone.
 
 ## Personal access token
 
@@ -71,48 +137,6 @@ or lost its scope — issue a new one.
 | `DISPLAY_DRIVER`          | `ssd1306` | `ssd1306` or `console`                    |
 | `I2C_BUS`                 | 1         | I2C bus number                            |
 | `I2C_ADDRESS`             | `0x3c`    | Hex or decimal                            |
-
-## Run under systemd
-
-```
-sudo cp deploy/agent-tracker.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now agent-tracker
-journalctl -u agent-tracker -f
-```
-
-The unit restarts the app on failure but not on config errors (exit 78), and
-runs with hardened sandboxing while keeping access to `/dev/i2c-1`.
-
-## Migrating from pm2
-
-```
-pm2 delete app
-pm2 save
-pm2 unstartup systemd
-```
-
-Then install the systemd unit as above.
-
-## Pi reliability tips
-
-Disable Wi-Fi power save so polling isn't interrupted:
-
-`/etc/NetworkManager/conf.d/wifi-powersave-off.conf`:
-
-```
-[connection]
-wifi.powersave = 2
-```
-
-Enable the hardware watchdog so a hung Pi reboots itself:
-
-`/etc/systemd/system.conf.d/watchdog.conf`:
-
-```
-[Manager]
-RuntimeWatchdogSec=15
-```
 
 ## Local dev
 

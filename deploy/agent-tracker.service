@@ -5,10 +5,11 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=pi
-Group=pi
+User=agent-tracker
+Group=agent-tracker
 SupplementaryGroups=i2c
-WorkingDirectory=/home/pi/agent-tracker
+WorkingDirectory=/opt/agent-tracker/current
+EnvironmentFile=/etc/agent-tracker/env
 ExecStart=/usr/bin/node --max-old-space-size=96 app.js
 Restart=always
 RestartSec=10
@@ -16,7 +17,7 @@ RestartPreventExitStatus=78
 
 NoNewPrivileges=yes
 ProtectSystem=strict
-ProtectHome=read-only
+ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=no
 DevicePolicy=closed

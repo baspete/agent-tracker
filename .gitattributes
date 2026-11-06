@@ -1,0 +1,4 @@
+test/ export-ignore
+scripts/ export-ignore
+deploy/ export-ignore
+.gitattributes export-ignore
