@@ -305,3 +305,29 @@ test('brightness is re-sent after a display error', async () => {
   await t.tick();
   assert.deepEqual(sent, [15, 15]);
 });
+
+test('queued count is logged on change and queue errors on transition', async () => {
+  const log = spyLog();
+  const snaps = [
+    { ...st(2), queued: 0, queuedErrorKind: null },
+    { ...st(2), queued: 0, queuedErrorKind: null },
+    { ...st(2), queued: 3, queuedErrorKind: null },
+    { ...st(2), queued: null, queuedErrorKind: 'http' },
+    { ...st(2), queued: null, queuedErrorKind: 'http' },
+  ];
+  const t = createTracker({
+    config,
+    fetchStatus: async () => snaps.shift(),
+    display: fakeDisplay(),
+    log,
+  });
+  for (let i = 0; i < 5; i++) await t.tick();
+  assert.deepEqual(
+    log.lines.filter((l) => /queued/.test(l)),
+    [
+      'info: jobs queued: 0',
+      'info: jobs queued: 3',
+      'error: queued jobs unavailable: kind=http',
+    ]
+  );
+});

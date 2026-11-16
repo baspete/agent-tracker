@@ -27,17 +27,19 @@ function retryAfterMs(res) {
   return Math.round(seconds * 1000);
 }
 
-export async function fetchPoolStatus({
-  org,
-  poolId,
-  pat,
-  timeoutMs,
-  signal,
-  fetchImpl = globalThis.fetch,
-}) {
-  const url = `https://dev.azure.com/${encodeURIComponent(
+function poolUrl(org, poolId, resource, extraQuery = '') {
+  return `https://dev.azure.com/${encodeURIComponent(
     org
-  )}/_apis/distributedtask/pools/${poolId}/agents?api-version=7.1`;
+  )}/_apis/distributedtask/pools/${poolId}/${resource}?api-version=7.1${extraQuery}`;
+}
+
+// GETs an Azure DevOps list endpoint and returns its `value` array. All
+// failures are DevOpsErrors (never containing the PAT), except a caller
+// abort, which rethrows the abort error.
+async function getValueArray(
+  url,
+  { pat, timeoutMs, signal, fetchImpl = globalThis.fetch }
+) {
   const auth = Buffer.from(`:${pat}`).toString('base64');
 
   const timeoutSignal = AbortSignal.timeout(timeoutMs);
@@ -122,7 +124,44 @@ export async function fetchPoolStatus({
     });
   }
 
-  return summarizeAgents(body.value);
+  return body.value;
+}
+
+export async function fetchPoolStatus(opts) {
+  const list = await getValueArray(poolUrl(opts.org, opts.poolId, 'agents'), opts);
+  return summarizeAgents(list);
+}
+
+// Unfinished job requests only; without completedRequestCount=0 the endpoint
+// returns the last 1000 finished jobs (~2 MB).
+export async function fetchQueuedJobCount(opts) {
+  const list = await getValueArray(
+    poolUrl(opts.org, opts.poolId, 'jobrequests', '&completedRequestCount=0'),
+    opts
+  );
+  return countQueued(list);
+}
+
+// A request is queued until it is assigned an agent; running requests have
+// assignTime, finished ones have finishTime/result.
+export function countQueued(list) {
+  return list.filter((r) => r && !r.assignTime && !r.finishTime && !r.result)
+    .length;
+}
+
+// Agent status plus the queued job count, fetched in parallel. If only the
+// queue request fails, the status is still returned with queued = null and
+// queuedErrorKind set, so the display keeps working.
+export async function fetchPoolSnapshot(opts) {
+  const queuedP = fetchQueuedJobCount(opts).then(
+    (queued) => ({ queued, queuedErrorKind: null }),
+    (err) => ({
+      queued: null,
+      queuedErrorKind: err instanceof DevOpsError ? err.kind : 'unknown',
+    })
+  );
+  const status = await fetchPoolStatus(opts);
+  return { ...status, ...(await queuedP) };
 }
 
 const BUSY_STATES = new Set(['RunningRequest', 'Provisioning']);

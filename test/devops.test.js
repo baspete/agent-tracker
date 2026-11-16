@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 
 import {
   fetchPoolStatus,
+  fetchQueuedJobCount,
+  fetchPoolSnapshot,
+  countQueued,
   summarizeAgents,
   DevOpsError,
 } from '../src/devops.js';
@@ -282,4 +285,66 @@ test('PAT never appears in any error', async () => {
       }
     );
   }
+});
+
+test('fetchQueuedJobCount asks only for unfinished requests', async () => {
+  let seenUrl;
+  const fetchImpl = async (url) => {
+    seenUrl = url;
+    return jsonResponse({ count: 0, value: [] });
+  };
+  assert.equal(await fetchQueuedJobCount({ ...base, fetchImpl }), 0);
+  assert.equal(
+    seenUrl,
+    'https://dev.azure.com/my-org/_apis/distributedtask/pools/27/jobrequests?api-version=7.1&completedRequestCount=0'
+  );
+});
+
+test('countQueued counts requests with no agent assigned yet', () => {
+  assert.equal(
+    countQueued([
+      { requestId: 1, queueTime: 't' }, // queued
+      { requestId: 2, queueTime: 't' }, // queued
+      { requestId: 3, queueTime: 't', assignTime: 't' }, // running
+      { requestId: 4, assignTime: 't', finishTime: 't', result: 'succeeded' },
+      { requestId: 5, finishTime: 't', result: 'canceled' }, // cancelled while queued
+      null,
+    ]),
+    2
+  );
+});
+
+test('fetchPoolSnapshot combines agent status and queued count', async () => {
+  const fetchImpl = async (url) =>
+    url.includes('/jobrequests')
+      ? jsonResponse({ value: [{ queueTime: 't' }] })
+      : jsonResponse({
+          value: [{ status: 'online', provisioningState: 'RunningRequest' }],
+        });
+  const s = await fetchPoolSnapshot({ ...base, fetchImpl });
+  assert.equal(s.busy, 1);
+  assert.equal(s.queued, 1);
+  assert.equal(s.queuedErrorKind, null);
+});
+
+test('fetchPoolSnapshot keeps the status when only the queue request fails', async () => {
+  const fetchImpl = async (url) =>
+    url.includes('/jobrequests')
+      ? jsonResponse({}, 500)
+      : jsonResponse({ value: [{ status: 'online' }] });
+  const s = await fetchPoolSnapshot({ ...base, fetchImpl });
+  assert.equal(s.online, 1);
+  assert.equal(s.queued, null);
+  assert.equal(s.queuedErrorKind, 'http');
+});
+
+test('fetchPoolSnapshot rejects when the agents request fails', async () => {
+  const fetchImpl = async (url) =>
+    url.includes('/jobrequests')
+      ? jsonResponse({ value: [] })
+      : jsonResponse({}, 401);
+  await assert.rejects(fetchPoolSnapshot({ ...base, fetchImpl }), (err) => {
+    assert.equal(err.kind, 'auth');
+    return true;
+  });
 });

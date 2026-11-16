@@ -101,16 +101,17 @@ export function renderFrame(fb, state, config, { now = Date.now() } = {}) {
     }
   } else {
     // Busy is the large count on the left, so the header shows online (left),
-    // idle (centred in the gap) and offline (right): number bright, word dim.
+    // idle (centred in the gap) and queued jobs (right): number bright, word
+    // dim. Queued is "--" if its request failed.
     const online = status ? String(status.online) : '--';
     const idle = status ? String(status.online - status.busy) : '--';
-    const offline = status ? String(status.offline) : '--';
-    const offX = right - countWidth(offline, 'OFF');
+    const queued = status?.queued != null ? String(status.queued) : '--';
+    const queuedX = right - countWidth(queued, 'QUEUED');
     const gapLeft = X + countWidth(online, 'ONLINE');
-    const idleX = Math.round((gapLeft + offX - countWidth(idle, 'IDLE')) / 2);
+    const idleX = Math.round((gapLeft + queuedX - countWidth(idle, 'IDLE')) / 2);
     drawCount(fb, X, oy, online, 'ONLINE');
     drawCount(fb, idleX, oy, idle, 'IDLE');
-    drawCount(fb, offX, oy, offline, 'OFF');
+    drawCount(fb, queuedX, oy, queued, 'QUEUED');
   }
 
   // Bar chart, newest on the right.

@@ -75,6 +75,16 @@ export function createTracker({
       const value = status.busy;
       const changed = value !== state.lastValue;
       const recovered = state.consecutiveFailures;
+      const prev = state.status;
+      if (status.queued != null && status.queued !== prev?.queued) {
+        log.info(`jobs queued: ${status.queued}`);
+      }
+      if (
+        status.queuedErrorKind &&
+        status.queuedErrorKind !== prev?.queuedErrorKind
+      ) {
+        log.error(`queued jobs unavailable: kind=${status.queuedErrorKind}`);
+      }
       state.status = status;
       state.lastValue = value;
       state.history.push(value);

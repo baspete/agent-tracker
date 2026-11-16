@@ -158,8 +158,9 @@ or lost its scope — issue a new one.
 The left side shows the busy count in large digits. On the right:
 
 - a header with the online count on the left (`12 ONLINE`), the idle count
-  (online but not busy) in the middle (`5 IDLE`) and the offline count on the
-  right (`2 OFF`), all shown even when zero; during an error it shows
+  (online but not busy) in the middle (`5 IDLE`) and the number of jobs
+  waiting for an agent on the right (`3 QUEUED`), all shown even when zero
+  (`-- QUEUED` if the job-requests call failed); during an error it shows
   the error (`AUTH ERROR`, `NET ERROR`, `API ERROR`) and how long ago the last
   good poll was instead
 - a bar chart of the last `SAMPLES` busy counts (newest brightest), scaled to

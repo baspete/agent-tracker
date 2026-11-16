@@ -30,7 +30,8 @@ const config = {
 };
 const NOON = new Date(2026, 0, 5, 12, 0).getTime();
 
-const status = (busy, idle, offline) => ({
+const status = (busy, idle, offline, queued = 0) => ({
+  queued,
   busy,
   online: busy + idle,
   offline,
@@ -87,35 +88,40 @@ function barHeight(fb, x) {
   return h;
 }
 
-// Expected header: "<online> ONLINE" left, "<offline> OFF" right-aligned, and
-// "<idle> IDLE" centred in the gap between them.
-function headerMatches(fb, online, idle, offline) {
+// Expected header: "<online> ONLINE" left, "<queued> QUEUED" right-aligned,
+// and "<idle> IDLE" centred in the gap between them.
+function headerMatches(fb, online, idle, queued) {
   const w = (t) => t.length * 6 - 1;
   const cw = (num, word) => w(num) + 5 + w(word);
-  const offX = WIDTH - MARGIN - cw(offline, 'OFF');
-  const idleX = Math.round((X + cw(online, 'ONLINE') + offX - cw(idle, 'IDLE')) / 2);
+  const qX = WIDTH - MARGIN - cw(queued, 'QUEUED');
+  const idleX = Math.round((X + cw(online, 'ONLINE') + qX - cw(idle, 'IDLE')) / 2);
   return (
     textMatches(fb, X, MARGIN, online, LEVEL.text) &&
     textMatches(fb, X + w(online) + 5, MARGIN, 'ONLINE', LEVEL.label) &&
     textMatches(fb, idleX, MARGIN, idle, LEVEL.text) &&
     textMatches(fb, idleX + w(idle) + 5, MARGIN, 'IDLE', LEVEL.label) &&
-    textMatches(fb, offX, MARGIN, offline, LEVEL.text) &&
-    textMatches(fb, offX + w(offline) + 5, MARGIN, 'OFF', LEVEL.label)
+    textMatches(fb, qX, MARGIN, queued, LEVEL.text) &&
+    textMatches(fb, qX + w(queued) + 5, MARGIN, 'QUEUED', LEVEL.label)
   );
 }
 
-test('header shows online, idle and offline counts, not busy', () => {
-  const fb = render(live(status(7, 5, 2)));
-  assert.ok(headerMatches(fb, '12', '5', '2'));
+test('header shows online, idle and queued counts, not busy or offline', () => {
+  const fb = render(live(status(7, 5, 2, 3)));
+  assert.ok(headerMatches(fb, '12', '5', '3'));
 });
 
 test('idle is online minus busy, and zero counts are shown', () => {
   assert.ok(headerMatches(render(live(status(0, 20, 0))), '20', '20', '0'));
-  assert.ok(headerMatches(render(live(status(20, 0, 0))), '20', '0', '0'));
+  assert.ok(headerMatches(render(live(status(20, 0, 0, 4))), '20', '0', '4'));
+});
+
+test('queued shows -- when its request failed', () => {
+  const s = { ...status(5, 15, 0), queued: null, queuedErrorKind: 'http' };
+  assert.ok(headerMatches(render(live(s)), '20', '15', '--'));
 });
 
 test('three-digit counts in the header do not overlap', () => {
-  const fb = render(live(status(0, 188, 188)));
+  const fb = render(live(status(0, 188, 0, 188)));
   assert.ok(headerMatches(fb, '188', '188', '188'));
 });
 

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { loadConfig, ConfigError } from './config.js';
-import { fetchPoolStatus } from './devops.js';
+import { fetchPoolSnapshot } from './devops.js';
 import { createTracker } from './tracker.js';
 import { createSsd1322 } from './displays/ssd1322.js';
 import { createConsoleDisplay } from './displays/console.js';
@@ -42,7 +42,7 @@ export async function main() {
         });
 
   const fetchStatus = (signal) =>
-    fetchPoolStatus({
+    fetchPoolSnapshot({
       org: config.org,
       poolId: config.poolId,
       pat: config.pat,
