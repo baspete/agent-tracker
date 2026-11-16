@@ -163,8 +163,8 @@ The left side shows the busy count in large digits. On the right:
   the error (`AUTH ERROR`, `NET ERROR`, `API ERROR`) and how long ago the last
   good poll was instead
 - a bar chart of the last `SAMPLES` busy counts (newest brightest), scaled to
-  the pool size, with a dim dashed line at the online count
-- one square per agent: bright = busy, dim = idle, outline = offline
+  the pool size, with a dim dashed line at the online count; it runs from
+  under the header to the bottom of the display
 
 In an elastic (scale-set) pool, Azure DevOps reports idle agents as
 `offline` / `Deallocated` until a job needs them. Those agents count as idle

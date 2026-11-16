@@ -8,7 +8,6 @@ import {
   SHIFT_SEQUENCE,
   formatAge,
   chartScale,
-  squareGrid,
   brightnessFor,
   isNight,
   isStale,
@@ -18,7 +17,6 @@ import {
   CHART_W,
   CHART_TOP,
   CHART_BASE,
-  SQUARES_Y,
 } from '../src/render.js';
 
 const config = {
@@ -124,9 +122,10 @@ test('three-digit counts in the header do not overlap', () => {
 test('placeholders before the first poll', () => {
   const fb = render({ status: null, history: [], lastError: null, lastSuccessAt: null });
   assert.ok(headerMatches(fb, '--', '--', '--'));
-  // big "--" lights the left panel; no squares drawn
+  // big "--" lights the left panel; the chart has only its baseline
   assert.ok(region(fb, 0, 0, 79, 50).some((v) => v === LEVEL.count));
-  assert.ok(region(fb, X, MARGIN + SQUARES_Y, WIDTH, HEIGHT).every((v) => v === 0));
+  const chart = region(fb, X, MARGIN + CHART_TOP, WIDTH, BASE + 1);
+  assert.ok(chart.every((v) => v === 0));
 });
 
 test('large count is drawn at LEVEL.count with AA edges', () => {
@@ -205,21 +204,23 @@ test('dim dashed line marks the online count', () => {
   assert.ok(row.some((v) => v === 0), 'dashed');
 });
 
-test('agent squares: bright busy, dim idle, outlined offline', () => {
-  const fb = render(live(status(1, 1, 1)));
-  const y = MARGIN + SQUARES_Y;
-  assert.equal(fb.getPixel(X + 3, y + 3), LEVEL.busy);
-  assert.equal(fb.getPixel(X + 9 + 3, y + 3), LEVEL.idle);
-  assert.equal(fb.getPixel(X + 18, y), LEVEL.offline);
-  assert.equal(fb.getPixel(X + 18 + 3, y + 3), 0, 'offline square is hollow');
+test('chart baseline sits on the bottom content row', () => {
+  const fb = render(live(status(7, 5, 2)));
+  const baselineY = HEIGHT - 1 - MARGIN;
+  assert.equal(BASE + 1, baselineY);
+  assert.equal(fb.getPixel(X, baselineY), LEVEL.baseline);
+  assert.equal(fb.getPixel(WIDTH - MARGIN - 1, baselineY), LEVEL.baseline);
+  // a full-scale bar reaches from the baseline up to the chart top
+  const full = render(live(status(14, 0, 0), [14]));
+  assert.equal(barHeight(full, newestX), 51);
+  assert.equal(full.getPixel(newestX, MARGIN + CHART_TOP - 1), 0);
 });
 
-test('square grid shrinks to fit large pools', () => {
-  assert.deepEqual(squareGrid(14), { size: 7, gap: 2, perRow: 18, rows: 1 });
-  assert.ok(squareGrid(30).size < 7);
-  const g = squareGrid(150);
-  assert.ok(g.perRow * g.rows >= 150);
-  assert.ok((g.size + g.gap) * g.rows - g.gap <= 10);
+test('no agent squares below the chart', () => {
+  const fb = render(live(status(7, 5, 2), [0]));
+  // with a zero bar, the rows just above the baseline must be dark
+  const rows = region(fb, X, BASE - 8, WIDTH, BASE + 1);
+  assert.ok(rows.every((v) => v === 0));
 });
 
 test('pixel shift cycles one pixel at a time and moves the frame', () => {
