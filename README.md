@@ -53,8 +53,9 @@ The only dependencies, `spi-device` and `node-libgpiod` (libgpiod 1.x, which
 bookworm ships), are native optional dependencies. A build failure on non-Linux
 machines is expected and harmless — use `DISPLAY_DRIVER=console` for local dev.
 
-The systemd unit only allows `/dev/spidev0.0` and `/dev/gpiochip0`. If you
-change `SPI_BUS`, `SPI_DEVICE` or `GPIO_CHIP`, update `DeviceAllow=` in
+The systemd unit only allows `/dev/spidev0.0` and the GPIO chip devices
+(`char-gpiochip`; node-libgpiod opens every chip when it loads). If you change
+`SPI_BUS` or `SPI_DEVICE`, update `DeviceAllow=` in
 `deploy/agent-tracker.service` to match.
 
 ## Deploy

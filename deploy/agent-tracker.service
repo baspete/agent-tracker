@@ -22,7 +22,9 @@ PrivateTmp=yes
 PrivateDevices=no
 DevicePolicy=closed
 DeviceAllow=/dev/spidev0.0 rw
-DeviceAllow=/dev/gpiochip0 rw
+# node-libgpiod opens every GPIO chip when it loads (its chipNames getter),
+# so allow the whole gpiochip device class rather than one chip.
+DeviceAllow=char-gpiochip rw
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes
