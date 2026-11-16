@@ -27,7 +27,7 @@ function retryAfterMs(res) {
   return Math.round(seconds * 1000);
 }
 
-export async function fetchBusyAgentCount({
+export async function fetchPoolStatus({
   org,
   poolId,
   pat,
@@ -122,9 +122,31 @@ export async function fetchBusyAgentCount({
     });
   }
 
-  return body.value.filter(
-    (a) =>
-      a.provisioningState === 'RunningRequest' ||
-      a.provisioningState === 'Provisioning'
-  ).length;
+  return summarizeAgents(body.value);
+}
+
+const BUSY_STATES = new Set(['RunningRequest', 'Provisioning']);
+const ORDER = { busy: 0, idle: 1, offline: 2 };
+
+// Classifies each agent as busy, idle (online, not busy) or offline. Busy wins
+// over status so busy never exceeds online.
+export function summarizeAgents(list) {
+  const agents = list
+    .map((a) =>
+      BUSY_STATES.has(a?.provisioningState)
+        ? 'busy'
+        : a?.status === 'online'
+          ? 'idle'
+          : 'offline'
+    )
+    .sort((x, y) => ORDER[x] - ORDER[y]);
+  const busy = agents.filter((s) => s === 'busy').length;
+  const idle = agents.filter((s) => s === 'idle').length;
+  return {
+    busy,
+    online: busy + idle,
+    offline: agents.length - busy - idle,
+    total: agents.length,
+    agents,
+  };
 }

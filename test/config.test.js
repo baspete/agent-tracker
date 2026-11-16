@@ -16,11 +16,20 @@ test('defaults are applied', () => {
   assert.equal(c.pat, 'sekret-pat-value');
   assert.equal(c.pollIntervalSeconds, 30);
   assert.equal(c.requestTimeoutSeconds, 10);
-  assert.equal(c.samples, 10);
-  assert.equal(c.scaleMax, 20);
-  assert.equal(c.displayDriver, 'ssd1306');
-  assert.equal(c.i2cBus, 1);
-  assert.equal(c.i2cAddress, 0x3c);
+  assert.equal(c.samples, 42);
+  assert.equal(c.scaleMax, null);
+  assert.equal(c.pixelShiftMinutes, 5);
+  assert.equal(c.nightStartHour, 22);
+  assert.equal(c.nightEndHour, 7);
+  assert.equal(c.nightBrightness, 5);
+  assert.equal(c.displayDriver, 'ssd1322');
+  assert.equal(c.spiBus, 0);
+  assert.equal(c.spiDevice, 0);
+  assert.equal(c.spiSpeedHz, 4_000_000);
+  assert.equal(c.gpioChip, 0);
+  assert.equal(c.dcGpio, 24);
+  assert.equal(c.resetGpio, 25);
+  assert.equal(c.displayRotate, 0);
   assert.ok(Object.isFrozen(c));
 });
 
@@ -70,17 +79,75 @@ test('interval bounds enforced', () => {
   );
 });
 
-test('hex and decimal i2c address parsing', () => {
-  assert.equal(loadConfig({ ...good, I2C_ADDRESS: '0x3d' }).i2cAddress, 0x3d);
-  assert.equal(loadConfig({ ...good, I2C_ADDRESS: '60' }).i2cAddress, 60);
-  assert.throws(
-    () => loadConfig({ ...good, I2C_ADDRESS: 'zz' }),
-    ConfigError
+test('burn-in settings are parsed and bounded', () => {
+  const c = loadConfig({
+    ...good,
+    PIXEL_SHIFT_MINUTES: '0',
+    NIGHT_START_HOUR: '0',
+    NIGHT_END_HOUR: '0',
+    NIGHT_BRIGHTNESS: '15',
+    SCALE_MAX: '30',
+  });
+  assert.equal(c.pixelShiftMinutes, 0);
+  assert.equal(c.nightStartHour, 0);
+  assert.equal(c.nightEndHour, 0);
+  assert.equal(c.nightBrightness, 15);
+  assert.equal(c.scaleMax, 30);
+  for (const [k, v] of [
+    ['NIGHT_START_HOUR', '24'],
+    ['NIGHT_END_HOUR', '-1'],
+    ['NIGHT_BRIGHTNESS', '0'],
+    ['NIGHT_BRIGHTNESS', '16'],
+    ['PIXEL_SHIFT_MINUTES', '1441'],
+    ['SAMPLES', '85'],
+  ]) {
+    assert.throws(() => loadConfig({ ...good, [k]: v }), ConfigError, `${k}=${v}`);
+  }
+});
+
+test('SPI and GPIO overrides are parsed', () => {
+  const c = loadConfig({
+    ...good,
+    SPI_BUS: '1',
+    SPI_DEVICE: '1',
+    SPI_SPEED_HZ: '8000000',
+    GPIO_CHIP: '4',
+    DC_GPIO: '5',
+    RESET_GPIO: '6',
+  });
+  assert.equal(c.spiBus, 1);
+  assert.equal(c.spiDevice, 1);
+  assert.equal(c.spiSpeedHz, 8_000_000);
+  assert.equal(c.gpioChip, 4);
+  assert.equal(c.dcGpio, 5);
+  assert.equal(c.resetGpio, 6);
+});
+
+test('SPI speed bounds enforced', () => {
+  for (const v of ['99999', '10000001', '4MHz', '-1']) {
+    assert.throws(() => loadConfig({ ...good, SPI_SPEED_HZ: v }), ConfigError);
+  }
+  assert.equal(
+    loadConfig({ ...good, SPI_SPEED_HZ: '10000000' }).spiSpeedHz,
+    10_000_000
   );
+});
+
+test('bad GPIO lines rejected', () => {
+  assert.throws(() => loadConfig({ ...good, DC_GPIO: '64' }), ConfigError);
+  assert.throws(() => loadConfig({ ...good, RESET_GPIO: 'x' }), ConfigError);
   assert.throws(
-    () => loadConfig({ ...good, I2C_ADDRESS: '0x99' }),
-    ConfigError
+    () => loadConfig({ ...good, DC_GPIO: '25', RESET_GPIO: '25' }),
+    /DC_GPIO and RESET_GPIO/
   );
+});
+
+test('DISPLAY_ROTATE accepts only 0 or 180', () => {
+  assert.equal(loadConfig({ ...good, DISPLAY_ROTATE: '180' }).displayRotate, 180);
+  assert.equal(loadConfig({ ...good, DISPLAY_ROTATE: '0' }).displayRotate, 0);
+  for (const v of ['90', '270', 'flip']) {
+    assert.throws(() => loadConfig({ ...good, DISPLAY_ROTATE: v }), ConfigError);
+  }
 });
 
 test('PAT never appears in the error message', () => {

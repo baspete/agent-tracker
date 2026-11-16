@@ -1,6 +1,6 @@
 import { DevOpsError } from './devops.js';
 import { Framebuffer } from './framebuffer.js';
-import { renderFrame } from './render.js';
+import { renderFrame, brightnessFor } from './render.js';
 
 const MAX_BACKOFF_MS = 300_000;
 const SHOW_TIMEOUT_MS = 5_000;
@@ -27,7 +27,7 @@ function withTimeout(promise, ms) {
 
 export function createTracker({
   config,
-  fetchCount,
+  fetchStatus,
   display,
   log = console,
   now = Date.now,
@@ -37,19 +37,29 @@ export function createTracker({
 
   const state = {
     history: [],
+    status: null,
     lastValue: null,
     lastError: null,
     consecutiveFailures: 0,
     lastSuccessAt: null,
   };
 
+  let brightness = null;
+
   async function updateDisplay() {
+    const t = now();
     const fb = new Framebuffer();
-    renderFrame(fb, state, config);
+    renderFrame(fb, state, config, { now: t });
+    const level = brightnessFor(state, config, t);
     try {
+      if (level !== brightness && display.setBrightness) {
+        await withTimeout(display.setBrightness(level), showTimeoutMs);
+      }
+      brightness = level;
       await withTimeout(display.show(fb), showTimeoutMs);
     } catch (err) {
       log.error(`display error: ${err.message}`);
+      brightness = null; // re-send after the display is reset
       try {
         await display.reset?.();
       } catch {
@@ -61,9 +71,11 @@ export function createTracker({
   async function tick(signal) {
     let delay;
     try {
-      const value = await fetchCount(signal);
+      const status = await fetchStatus(signal);
+      const value = status.busy;
       const changed = value !== state.lastValue;
       const recovered = state.consecutiveFailures;
+      state.status = status;
       state.lastValue = value;
       state.history.push(value);
       while (state.history.length > config.samples) state.history.shift();

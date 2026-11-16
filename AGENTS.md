@@ -1,13 +1,14 @@
 # agent-tracker
 
 Shows how many Azure DevOps agents in one pool are busy, as text plus a bar
-chart on a 128x64 SSD1306 I2C OLED. Runs on a Raspberry Pi (Node >= 20.12),
+chart on a 256x64 SSD1322 greyscale OLED over 4-wire SPI (DC/RES on GPIO via
+libgpiod). Runs on a Raspberry Pi (Node >= 20.12),
 with a console display driver for local dev on other platforms.
 
 ## Commands
 
-- Install: `yarn install --frozen-lockfile` (the only dep, `i2c-bus`, is
-  optional and native; a build failure off-Pi is expected)
+- Install: `yarn install --frozen-lockfile` (the only deps, `spi-device` and
+  `node-libgpiod`, are optional and native; a build failure off-Pi is expected)
 - Run: `yarn start` (or `node app.js`)
 - Local dev without hardware: `DISPLAY_DRIVER=console node app.js`
 - Test: `yarn test` (or `node --test`)

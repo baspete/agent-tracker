@@ -1,125 +1,264 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { Framebuffer, WIDTH } from '../src/framebuffer.js';
-import { renderFrame } from '../src/render.js';
+import { Framebuffer, WIDTH, HEIGHT } from '../src/framebuffer.js';
+import {
+  renderFrame,
+  pixelShift,
+  SHIFT_SEQUENCE,
+  formatAge,
+  chartScale,
+  squareGrid,
+  brightnessFor,
+  isNight,
+  isStale,
+  LEVEL,
+  MARGIN,
+  CHART_X,
+  CHART_W,
+  CHART_TOP,
+  CHART_BASE,
+  SQUARES_Y,
+} from '../src/render.js';
 
-const config = { samples: 10, scaleMax: 20 };
+const config = {
+  samples: 42,
+  scaleMax: null,
+  pollIntervalSeconds: 30,
+  pixelShiftMinutes: 0,
+  nightStartHour: 22,
+  nightEndHour: 7,
+  nightBrightness: 5,
+};
+const NOON = new Date(2026, 0, 5, 12, 0).getTime();
 
-function headerRegionEquals(fb, expectedText) {
-  const expected = new Framebuffer();
-  const textW = expectedText.length * 6 - 1;
-  expected.drawText(Math.floor((WIDTH - textW) / 2), 4, expectedText, 1);
-  for (let y = 0; y < 16; y++) {
-    for (let x = 0; x < WIDTH; x++) {
-      if (fb.getPixel(x, y) !== expected.getPixel(x, y)) return false;
-    }
-  }
+const status = (busy, idle, offline) => ({
+  busy,
+  online: busy + idle,
+  offline,
+  total: busy + idle + offline,
+  agents: [
+    ...Array(busy).fill('busy'),
+    ...Array(idle).fill('idle'),
+    ...Array(offline).fill('offline'),
+  ],
+});
+
+const live = (s, history = [s.busy]) => ({
+  status: s,
+  history,
+  lastValue: s.busy,
+  lastError: null,
+  lastSuccessAt: NOON,
+});
+
+function render(state, cfg = config, now = NOON) {
+  const fb = new Framebuffer();
+  renderFrame(fb, state, cfg, { now });
+  return fb;
+}
+
+// Pixels in rows [y0, y1) and columns [x0, x1).
+function region(fb, x0, y0, x1, y1) {
+  const out = [];
+  for (let y = y0; y < y1; y++)
+    for (let x = x0; x < x1; x++) out.push(fb.getPixel(x, y));
+  return out;
+}
+
+function textMatches(fb, x, y, text, level) {
+  const exp = new Framebuffer();
+  exp.drawText(x, y, text, 1, level);
+  const w = text.length * 6;
+  for (let yy = y; yy < y + 7; yy++)
+    for (let xx = x; xx < x + w; xx++)
+      if (fb.getPixel(xx, yy) !== exp.getPixel(xx, yy)) return false;
   return true;
 }
 
-function colHeight(fb, x) {
+const X = MARGIN + CHART_X;
+const BASE = MARGIN + CHART_BASE;
+const newestX = X + CHART_W - 2; // middle of the rightmost 3px bar
+
+function barHeight(fb, x) {
   let h = 0;
-  for (let y = 16; y <= 62; y++) {
-    if (fb.getPixel(x, y)) h = 62 - y + 1 > h ? 62 - y + 1 : h;
+  for (let y = BASE; y >= MARGIN + CHART_TOP; y--) {
+    if (fb.getPixel(x, y) >= LEVEL.bar) h++;
+    else break;
   }
   return h;
 }
 
-test('header shows AGENTS value', () => {
-  const fb = new Framebuffer();
-  renderFrame(fb, { history: [3], lastValue: 3, lastError: null }, config);
-  assert.ok(headerRegionEquals(fb, 'AGENTS 3'));
+test('header shows busy/online, ONLINE label and offline count', () => {
+  const fb = render(live(status(7, 5, 2)));
+  assert.ok(textMatches(fb, X, MARGIN, '7/12', LEVEL.text));
+  assert.ok(textMatches(fb, X + 4 * 6 - 1 + 5, MARGIN, 'ONLINE', LEVEL.label));
+  const off = '2 OFF';
+  assert.ok(textMatches(fb, WIDTH - MARGIN - (off.length * 6 - 1), MARGIN, off, LEVEL.muted));
 });
 
-test('header text is centered in the 16px header band', () => {
-  const fb = new Framebuffer();
-  renderFrame(fb, { history: [], lastValue: 15, lastError: null }, config);
-  let minX = WIDTH, maxX = -1, minY = 16, maxY = -1;
-  for (let y = 0; y < 16; y++) {
-    for (let x = 0; x < WIDTH; x++) {
-      if (!fb.getPixel(x, y)) continue;
-      minX = Math.min(minX, x);
-      maxX = Math.max(maxX, x);
-      minY = Math.min(minY, y);
-      maxY = Math.max(maxY, y);
-    }
+test('no offline count when every agent is online', () => {
+  const fb = render(live(status(3, 3, 0)));
+  const right = region(fb, WIDTH - 40, MARGIN, WIDTH, MARGIN + 7);
+  assert.ok(right.every((v) => v === 0));
+});
+
+test('placeholders before the first poll', () => {
+  const fb = render({ status: null, history: [], lastError: null, lastSuccessAt: null });
+  assert.ok(textMatches(fb, X, MARGIN, '--/--', LEVEL.text));
+  // big "--" lights the left panel; no squares drawn
+  assert.ok(region(fb, 0, 0, 79, 50).some((v) => v === 15));
+  assert.ok(region(fb, X, MARGIN + SQUARES_Y, WIDTH, HEIGHT).every((v) => v === 0));
+});
+
+test('large count lights the left panel at full brightness with AA edges', () => {
+  const fb = render(live(status(7, 5, 2)));
+  const left = region(fb, 0, 0, 79, 50);
+  assert.ok(left.some((v) => v === 15));
+  assert.ok(left.some((v) => v > 0 && v < 15), 'anti-aliased edge pixels');
+});
+
+test('two- and three-digit counts stay inside the left panel', () => {
+  for (const busy of [12, 88, 188]) {
+    const fb = render(live(status(busy, 0, 0)));
+    const spill = region(fb, MARGIN + 79, 0, X, HEIGHT).filter((v) => v > LEVEL.divider);
+    assert.equal(spill.length, 0, `busy=${busy}`);
   }
-  assert.ok(Math.abs(minX - (WIDTH - 1 - maxX)) <= 1, `x ${minX}..${maxX}`);
-  assert.ok(maxY - minY <= 6, 'text is at most 7px tall (scale 1)');
-  assert.ok(minY >= 3 && maxY <= 12, `y ${minY}..${maxY}`);
 });
 
-test('header shows AGENTS -- when no value yet', () => {
-  const fb = new Framebuffer();
-  renderFrame(fb, { history: [], lastValue: null, lastError: null }, config);
-  assert.ok(headerRegionEquals(fb, 'AGENTS --'));
-});
-
-test('header shows error labels by kind', () => {
-  for (const [kind, text] of [
+test('error header shows the label and age of the last good poll', () => {
+  for (const [kind, label] of [
     ['auth', 'AUTH ERROR'],
     ['network', 'NET ERROR'],
     ['timeout', 'NET ERROR'],
     ['http', 'API ERROR'],
     ['parse', 'API ERROR'],
   ]) {
-    const fb = new Framebuffer();
-    renderFrame(
-      fb,
-      { history: [], lastValue: null, lastError: { kind } },
-      config
+    const state = { ...live(status(7, 5, 2)), lastError: { kind } };
+    const fb = render(state, config, NOON + 12 * 60_000);
+    assert.ok(textMatches(fb, X, MARGIN, label, LEVEL.text), kind);
+    const age = '12m ago';
+    assert.ok(
+      textMatches(fb, WIDTH - MARGIN - (age.length * 6 - 1), MARGIN, age, LEVEL.muted),
+      kind
     );
-    assert.ok(headerRegionEquals(fb, text), `kind=${kind}`);
   }
 });
 
-test('value == scaleMax gives 47px bar', () => {
-  const fb = new Framebuffer();
-  renderFrame(
-    fb,
-    { history: [20], lastValue: 20, lastError: null },
-    config
-  );
-  const x = 9 * Math.floor(WIDTH / 10); // newest in rightmost slot
-  assert.equal(colHeight(fb, x), 47);
-  assert.ok(!fb.getPixel(x, 15));
-  assert.ok(fb.getPixel(x, 16));
-  assert.ok(fb.getPixel(x, 62));
+test('formatAge', () => {
+  assert.equal(formatAge(5_000), '5s ago');
+  assert.equal(formatAge(125_000), '2m ago');
+  assert.equal(formatAge(3 * 3600_000 + 5), '3h ago');
+  assert.equal(formatAge(-10), '0s ago');
 });
 
-test('value 0 lights only the baseline', () => {
-  const fb = new Framebuffer();
-  renderFrame(fb, { history: [0], lastValue: 0, lastError: null }, config);
-  const x = 9 * Math.floor(WIDTH / 10);
-  assert.equal(colHeight(fb, x), 0);
-  assert.ok(fb.getPixel(x, 63)); // baseline always lit
-  // empty slots still get baselines
-  assert.ok(fb.getPixel(0, 63));
+test('chart scales to the pool size; SCALE_MAX is a floor', () => {
+  const s = status(7, 5, 2);
+  assert.equal(chartScale(live(s), config), 14);
+  assert.equal(chartScale(live(s), { ...config, scaleMax: 20 }), 20);
+  assert.equal(chartScale(live(s, [30]), config), 30);
+  assert.equal(chartScale({ status: null, history: [] }, config), 1);
 });
 
-test('scaleMax grows to fit history beyond config.scaleMax', () => {
-  const fb = new Framebuffer();
-  renderFrame(
-    fb,
-    { history: [40], lastValue: 40, lastError: null },
-    config
-  );
-  const x = 9 * Math.floor(WIDTH / 10);
-  assert.equal(colHeight(fb, x), 47); // dynamic scaleMax = 40
+test('newest bar is brightest and a full bar fills the chart height', () => {
+  const s = status(14, 0, 0);
+  const fb = render(live(s, [7, 14]));
+  assert.equal(fb.getPixel(newestX, BASE), LEVEL.newestBar);
+  assert.equal(barHeight(fb, newestX), CHART_BASE - CHART_TOP + 1);
+  assert.equal(fb.getPixel(newestX - 4, BASE), LEVEL.bar);
+  assert.equal(barHeight(fb, newestX - 4), Math.round(0.5 * (CHART_BASE - CHART_TOP + 1)));
 });
 
-test('fewer samples than slots are right-aligned', () => {
-  const fb = new Framebuffer();
-  renderFrame(
-    fb,
-    { history: [5, 10], lastValue: 10, lastError: null },
-    config
+test('fewer samples than slots are right-aligned; baseline always drawn', () => {
+  const fb = render(live(status(7, 5, 2), [7]));
+  assert.ok(barHeight(fb, newestX) > 0);
+  assert.equal(fb.getPixel(newestX - 4, BASE), 0);
+  assert.equal(fb.getPixel(X, BASE + 1), LEVEL.baseline);
+  assert.equal(fb.getPixel(WIDTH - MARGIN - 1, BASE + 1), LEVEL.baseline);
+});
+
+test('dim dashed line marks the online count', () => {
+  const s = status(0, 7, 7); // online = half the pool
+  const fb = render(live(s, [0]));
+  const y = BASE - Math.round(0.5 * (CHART_BASE - CHART_TOP + 1)) + 1;
+  const row = region(fb, X, y, WIDTH - MARGIN, y + 1);
+  assert.ok(row.some((v) => v === LEVEL.onlineLine));
+  assert.ok(row.some((v) => v === 0), 'dashed');
+});
+
+test('agent squares: bright busy, dim idle, outlined offline', () => {
+  const fb = render(live(status(1, 1, 1)));
+  const y = MARGIN + SQUARES_Y;
+  assert.equal(fb.getPixel(X + 3, y + 3), LEVEL.busy);
+  assert.equal(fb.getPixel(X + 9 + 3, y + 3), LEVEL.idle);
+  assert.equal(fb.getPixel(X + 18, y), LEVEL.offline);
+  assert.equal(fb.getPixel(X + 18 + 3, y + 3), 0, 'offline square is hollow');
+});
+
+test('square grid shrinks to fit large pools', () => {
+  assert.deepEqual(squareGrid(14), { size: 7, gap: 2, perRow: 18, rows: 1 });
+  assert.ok(squareGrid(30).size < 7);
+  const g = squareGrid(150);
+  assert.ok(g.perRow * g.rows >= 150);
+  assert.ok((g.size + g.gap) * g.rows - g.gap <= 10);
+});
+
+test('pixel shift cycles one pixel at a time and moves the frame', () => {
+  for (let i = 0; i < SHIFT_SEQUENCE.length; i++) {
+    const [ax, ay] = SHIFT_SEQUENCE[i];
+    const [bx, by] = SHIFT_SEQUENCE[(i + 1) % SHIFT_SEQUENCE.length];
+    assert.ok(Math.abs(ax - bx) <= 1 && Math.abs(ay - by) <= 1);
+  }
+  assert.deepEqual(pixelShift(123456789, 0), [0, 0]);
+  assert.deepEqual(pixelShift(0, 5), [0, 0]);
+  assert.deepEqual(pixelShift(5 * 60_000, 5), [1, 0]);
+
+  const state = live(status(7, 5, 2));
+  const cfg = { ...config, pixelShiftMinutes: 5 };
+  const a = render(state, cfg, 0);
+  const b = render(state, cfg, 5 * 60_000); // shifted right by one
+  for (let y = 0; y < HEIGHT; y++)
+    for (let x = 1; x < WIDTH; x++)
+      assert.equal(b.getPixel(x, y), a.getPixel(x - 1, y), `${x},${y}`);
+});
+
+test('nothing is drawn outside the 1px margin when unshifted', () => {
+  const fb = render(live(status(7, 5, 2), Array(42).fill(14)));
+  const edges = [
+    ...region(fb, 0, 0, WIDTH, 1),
+    ...region(fb, 0, HEIGHT - 1, WIDTH, HEIGHT),
+    ...region(fb, WIDTH - 1, 0, WIDTH, HEIGHT),
+  ];
+  assert.ok(edges.every((v) => v === 0));
+});
+
+test('night window handles wrap-around and is off when start == end', () => {
+  const at = (h) => new Date(2026, 0, 5, h, 30).getTime();
+  assert.ok(isNight(at(23), 22, 7));
+  assert.ok(isNight(at(3), 22, 7));
+  assert.ok(!isNight(at(7), 22, 7));
+  assert.ok(!isNight(at(12), 22, 7));
+  assert.ok(isNight(at(13), 12, 14));
+  assert.ok(!isNight(at(14), 12, 14));
+  assert.ok(!isNight(at(3), 5, 5));
+});
+
+test('stale after three poll intervals without a good poll', () => {
+  const s = live(status(1, 1, 0));
+  assert.ok(!isStale(s, config, NOON + 90_000));
+  assert.ok(isStale(s, config, NOON + 90_001));
+  assert.ok(isStale({ lastSuccessAt: null, lastError: { kind: 'auth' } }, config, NOON));
+  assert.ok(!isStale({ lastSuccessAt: null, lastError: null }, config, NOON));
+});
+
+test('brightness: full by day, NIGHT_BRIGHTNESS at night, ~35% when stale', () => {
+  const s = live(status(1, 1, 0));
+  const night = new Date(2026, 0, 5, 23, 0).getTime();
+  assert.equal(brightnessFor(s, config, NOON), 15);
+  assert.equal(brightnessFor({ ...s, lastSuccessAt: night }, config, night), 5);
+  assert.equal(brightnessFor(s, config, NOON + 10 * 60_000), 5);
+  assert.equal(
+    brightnessFor({ ...s, lastSuccessAt: night - 600_000 }, config, night),
+    2
   );
-  const colW = Math.floor(WIDTH / 10);
-  // newest (10) in slot 9, previous (5) in slot 8, slot 7 empty
-  assert.equal(colHeight(fb, 9 * colW), Math.round((10 / 20) * 47));
-  assert.equal(colHeight(fb, 8 * colW), Math.round((5 / 20) * 47));
-  assert.equal(colHeight(fb, 7 * colW), 0);
-  assert.ok(fb.getPixel(7 * colW, 63));
 });

@@ -3,18 +3,22 @@ import { WIDTH, HEIGHT } from '../framebuffer.js';
 export function createConsoleDisplay({ out = process.stdout } = {}) {
   let last = null;
 
+  // Darkest to brightest; index = grey level * (RAMP.length - 1) / 15.
+  const RAMP = '.:-=+*#%@';
+
   function render(fb) {
-    // 2x downsample: 64 columns x 32 rows of '#' / '.'
+    // 2x downsample (128 columns x 32 rows), keeping the brightest pixel.
     const lines = [];
     for (let y = 0; y < HEIGHT; y += 2) {
       let line = '';
       for (let x = 0; x < WIDTH; x += 2) {
-        const on =
-          fb.getPixel(x, y) ||
-          fb.getPixel(x + 1, y) ||
-          fb.getPixel(x, y + 1) ||
-          fb.getPixel(x + 1, y + 1);
-        line += on ? '#' : '.';
+        const level = Math.max(
+          fb.getPixel(x, y),
+          fb.getPixel(x + 1, y),
+          fb.getPixel(x, y + 1),
+          fb.getPixel(x + 1, y + 1)
+        );
+        line += RAMP[Math.ceil((level * (RAMP.length - 1)) / 15)];
       }
       lines.push(line);
     }
@@ -29,6 +33,7 @@ export function createConsoleDisplay({ out = process.stdout } = {}) {
       last = frame;
       out.write(frame + '\n');
     },
+    async setBrightness() {},
     async reset() {
       last = null;
     },
