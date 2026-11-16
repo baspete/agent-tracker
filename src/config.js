@@ -83,6 +83,7 @@ export function loadConfig(env = process.env) {
   );
   const nightStartHour = parseIntOpt('NIGHT_START_HOUR', env.NIGHT_START_HOUR, 22, 0, 23, problems);
   const nightEndHour = parseIntOpt('NIGHT_END_HOUR', env.NIGHT_END_HOUR, 7, 0, 23, problems);
+  const brightness = parseIntOpt('BRIGHTNESS', env.BRIGHTNESS, 8, 1, 15, problems);
   const nightBrightness = parseIntOpt(
     'NIGHT_BRIGHTNESS',
     env.NIGHT_BRIGHTNESS,
@@ -143,6 +144,7 @@ export function loadConfig(env = process.env) {
     pixelShiftMinutes,
     nightStartHour,
     nightEndHour,
+    brightness,
     nightBrightness,
     displayDriver,
     spiBus,

@@ -139,6 +139,7 @@ or lost its scope — issue a new one.
 | `REQUEST_TIMEOUT_SECONDS` | 10        | 1..60                                     |
 | `SAMPLES`                 | 42        | 1..84 bars on the chart                   |
 | `SCALE_MAX`               | (unset)   | Chart scale floor; unset = pool size      |
+| `BRIGHTNESS`              | 8         | Daytime master contrast, 1..15            |
 | `PIXEL_SHIFT_MINUTES`     | 5         | Burn-in: move the frame 1px this often; 0 = off |
 | `NIGHT_START_HOUR`        | 22        | Local hour night dimming starts (0..23)   |
 | `NIGHT_END_HOUR`          | 7         | Local hour it ends; equal to start = off  |
@@ -170,8 +171,8 @@ In an elastic (scale-set) pool, Azure DevOps reports idle agents as
 their online/offline status.
 
 Burn-in protection: the whole frame moves by one pixel every
-`PIXEL_SHIFT_MINUTES`, and the panel's master contrast drops to
-`NIGHT_BRIGHTNESS` between `NIGHT_START_HOUR` and `NIGHT_END_HOUR` (Pi local
+`PIXEL_SHIFT_MINUTES`. The panel's master contrast is `BRIGHTNESS` by day and
+drops to `NIGHT_BRIGHTNESS` (never higher than `BRIGHTNESS`) between `NIGHT_START_HOUR` and `NIGHT_END_HOUR` (Pi local
 time). When no poll has succeeded for three poll intervals, the whole screen
 dims to about 35%.
 

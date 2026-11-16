@@ -18,16 +18,19 @@ const CHART_H = CHART_BASE - CHART_TOP + 1;
 export const SQUARES_Y = 52;
 const SQUARES_H = 10;
 
+// Grey levels (0..15) before the panel's master contrast is applied. Nothing
+// uses full 15: the numbers were too glaring at that level.
 export const LEVEL = Object.freeze({
-  text: 15,
+  count: 10,
+  text: 10,
   label: 6,
   muted: 5,
   divider: 2,
   baseline: 2,
   onlineLine: 3,
-  bar: 9,
-  newestBar: 15,
-  busy: 15,
+  bar: 8,
+  newestBar: 11,
+  busy: 11,
   idle: 4,
   offline: 5,
 });
@@ -96,6 +99,7 @@ export function renderFrame(fb, state, config, { now = Date.now() } = {}) {
   // Left: large busy count.
   drawBigNumber(fb, ox + LEFT_CX, oy + 1, status ? String(status.busy) : '--', {
     maxWidth: DIVIDER_X - 4,
+    level: LEVEL.count,
   });
   fb.drawText(ox + LEFT_CX - Math.floor(textWidth('BUSY') / 2), oy + 53, 'BUSY', 1, LEVEL.label);
   fb.fillRect(ox + DIVIDER_X, oy + 2, 1, 56, LEVEL.divider);
@@ -167,9 +171,9 @@ export function renderFrame(fb, state, config, { now = Date.now() } = {}) {
 
 // Master brightness (SSD1322 master contrast, 0..15) for this moment.
 export function brightnessFor(state, config, now) {
-  let level = 15;
+  let level = config.brightness ?? 15;
   if (isNight(now, config.nightStartHour, config.nightEndHour)) {
-    level = config.nightBrightness;
+    level = Math.min(level, config.nightBrightness);
   }
   if (isStale(state, config, now)) {
     level = Math.max(1, Math.round(level * 0.35));

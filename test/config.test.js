@@ -21,6 +21,7 @@ test('defaults are applied', () => {
   assert.equal(c.pixelShiftMinutes, 5);
   assert.equal(c.nightStartHour, 22);
   assert.equal(c.nightEndHour, 7);
+  assert.equal(c.brightness, 8);
   assert.equal(c.nightBrightness, 5);
   assert.equal(c.displayDriver, 'ssd1322');
   assert.equal(c.spiBus, 0);
@@ -98,6 +99,8 @@ test('burn-in settings are parsed and bounded', () => {
     ['NIGHT_END_HOUR', '-1'],
     ['NIGHT_BRIGHTNESS', '0'],
     ['NIGHT_BRIGHTNESS', '16'],
+    ['BRIGHTNESS', '0'],
+    ['BRIGHTNESS', '16'],
     ['PIXEL_SHIFT_MINUTES', '1441'],
     ['SAMPLES', '85'],
   ]) {

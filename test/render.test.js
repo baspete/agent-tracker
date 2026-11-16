@@ -118,15 +118,16 @@ test('placeholders before the first poll', () => {
   const fb = render({ status: null, history: [], lastError: null, lastSuccessAt: null });
   assert.ok(headerMatches(fb, '--', '--'));
   // big "--" lights the left panel; no squares drawn
-  assert.ok(region(fb, 0, 0, 79, 50).some((v) => v === 15));
+  assert.ok(region(fb, 0, 0, 79, 50).some((v) => v === LEVEL.count));
   assert.ok(region(fb, X, MARGIN + SQUARES_Y, WIDTH, HEIGHT).every((v) => v === 0));
 });
 
-test('large count lights the left panel at full brightness with AA edges', () => {
+test('large count is drawn at LEVEL.count with AA edges', () => {
   const fb = render(live(status(7, 5, 2)));
   const left = region(fb, 0, 0, 79, 50);
-  assert.ok(left.some((v) => v === 15));
-  assert.ok(left.some((v) => v > 0 && v < 15), 'anti-aliased edge pixels');
+  assert.ok(left.some((v) => v === LEVEL.count));
+  assert.ok(left.every((v) => v <= LEVEL.count));
+  assert.ok(left.some((v) => v > 0 && v < LEVEL.count), 'anti-aliased edge pixels');
 });
 
 test('two- and three-digit counts stay inside the left panel', () => {
@@ -265,11 +266,29 @@ test('stale after three poll intervals without a good poll', () => {
 test('brightness: full by day, NIGHT_BRIGHTNESS at night, ~35% when stale', () => {
   const s = live(status(1, 1, 0));
   const night = new Date(2026, 0, 5, 23, 0).getTime();
-  assert.equal(brightnessFor(s, config, NOON), 15);
+  assert.equal(brightnessFor(s, config, NOON), 15); // no BRIGHTNESS set
   assert.equal(brightnessFor({ ...s, lastSuccessAt: night }, config, night), 5);
   assert.equal(brightnessFor(s, config, NOON + 10 * 60_000), 5);
   assert.equal(
     brightnessFor({ ...s, lastSuccessAt: night - 600_000 }, config, night),
     2
   );
+});
+
+test('BRIGHTNESS sets the day level; night never exceeds it', () => {
+  const s = live(status(1, 1, 0));
+  const night = new Date(2026, 0, 5, 23, 0).getTime();
+  const cfg = { ...config, brightness: 8 };
+  assert.equal(brightnessFor(s, cfg, NOON), 8);
+  assert.equal(brightnessFor({ ...s, lastSuccessAt: night }, cfg, night), 5);
+  assert.equal(
+    brightnessFor({ ...s, lastSuccessAt: night }, { ...cfg, brightness: 3 }, night),
+    3
+  );
+  assert.equal(brightnessFor(s, cfg, NOON + 10 * 60_000), 3); // stale: ~35%
+});
+
+test('nothing in the frame is drawn at full level 15', () => {
+  const fb = render(live(status(7, 5, 2), Array(42).fill(7)));
+  assert.ok(fb.buffer.every((v) => v < 15));
 });
