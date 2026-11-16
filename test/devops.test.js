@@ -31,21 +31,50 @@ test('200 counts only RunningRequest and Provisioning as busy', async () => {
   assert.equal(s.total, 5);
 });
 
-test('summarizeAgents splits busy, idle and offline', () => {
+test('summarizeAgents: self-hosted agents use status', () => {
   const s = summarizeAgents([
-    { status: 'offline', provisioningState: 'Idle' },
-    { status: 'online', provisioningState: 'Idle' },
-    { status: 'online', provisioningState: 'RunningRequest' },
-    { status: 'online' },
-    { status: 'offline', provisioningState: 'Provisioning' },
+    { status: 'online', enabled: true },
+    { status: 'offline', enabled: true },
+    { status: 'online', enabled: false },
     {},
+  ]);
+  assert.deepEqual(s, {
+    busy: 0,
+    online: 1,
+    offline: 3,
+    total: 4,
+    agents: ['idle', 'offline', 'offline', 'offline'],
+  });
+});
+
+test('summarizeAgents: deallocated elastic agents count as idle', () => {
+  // Shape seen from a real scale-set pool with every VM deallocated.
+  const pool = Array.from({ length: 20 }, () => ({
+    status: 'offline',
+    provisioningState: 'Deallocated',
+    enabled: true,
+  }));
+  const s = summarizeAgents(pool);
+  assert.equal(s.busy, 0);
+  assert.equal(s.online, 20);
+  assert.equal(s.offline, 0);
+  assert.equal(s.total, 20);
+});
+
+test('summarizeAgents: elastic busy, idle and disabled', () => {
+  const s = summarizeAgents([
+    { status: 'offline', provisioningState: 'Deallocated', enabled: false },
+    { status: 'online', provisioningState: 'Idle', enabled: true },
+    { status: 'online', provisioningState: 'RunningRequest', enabled: true },
+    { status: 'offline', provisioningState: 'Provisioning', enabled: true },
+    { status: 'offline', provisioningState: 'Deallocating', enabled: true },
   ]);
   assert.deepEqual(s, {
     busy: 2,
     online: 4,
-    offline: 2,
-    total: 6,
-    agents: ['busy', 'busy', 'idle', 'idle', 'offline', 'offline'],
+    offline: 1,
+    total: 5,
+    agents: ['busy', 'busy', 'idle', 'idle', 'offline'],
   });
 });
 

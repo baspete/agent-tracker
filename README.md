@@ -163,6 +163,11 @@ The left side shows the busy count in large digits. On the right:
   the pool size, with a dim dashed line at the online count
 - one square per agent: bright = busy, dim = idle, outline = offline
 
+In an elastic (scale-set) pool, Azure DevOps reports idle agents as
+`offline` / `Deallocated` until a job needs them. Those agents count as idle
+(available); only disabled agents count as offline. Self-hosted agents use
+their online/offline status.
+
 Burn-in protection: the whole frame moves by one pixel every
 `PIXEL_SHIFT_MINUTES`, and the panel's master contrast drops to
 `NIGHT_BRIGHTNESS` between `NIGHT_START_HOUR` and `NIGHT_END_HOUR` (Pi local

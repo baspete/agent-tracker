@@ -128,18 +128,23 @@ export async function fetchPoolStatus({
 const BUSY_STATES = new Set(['RunningRequest', 'Provisioning']);
 const ORDER = { busy: 0, idle: 1, offline: 2 };
 
-// Classifies each agent as busy, idle (online, not busy) or offline. Busy wins
-// over status so busy never exceeds online.
+// Classifies each agent as busy, idle (available, not busy) or offline.
+//
+// Elastic (scale-set) pool agents carry a provisioningState. Azure DevOps
+// reports their idle VMs as status "offline" / provisioningState
+// "Deallocated" until a job needs them, so for those agents status is
+// ignored: busy if running or provisioning, offline only if disabled, and
+// otherwise idle. Agents without a provisioningState (self-hosted) use status.
+// Busy wins over everything, so busy never exceeds online.
+function classify(a) {
+  if (BUSY_STATES.has(a?.provisioningState)) return 'busy';
+  if (a?.enabled === false) return 'offline';
+  if (a?.provisioningState) return 'idle';
+  return a?.status === 'online' ? 'idle' : 'offline';
+}
+
 export function summarizeAgents(list) {
-  const agents = list
-    .map((a) =>
-      BUSY_STATES.has(a?.provisioningState)
-        ? 'busy'
-        : a?.status === 'online'
-          ? 'idle'
-          : 'offline'
-    )
-    .sort((x, y) => ORDER[x] - ORDER[y]);
+  const agents = list.map(classify).sort((x, y) => ORDER[x] - ORDER[y]);
   const busy = agents.filter((s) => s === 'busy').length;
   const idle = agents.filter((s) => s === 'idle').length;
   return {
