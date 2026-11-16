@@ -49,6 +49,14 @@ export function pixelShift(nowMs, minutes) {
 const textWidth = (s) => s.length * CELL_WIDTH - 1;
 const HEADER_GAP = 5; // px between a header number and its word
 
+const countWidth = (num, word) => textWidth(num) + HEADER_GAP + textWidth(word);
+
+// "<num> <word>" with the number at text level and the word at label level.
+function drawCount(fb, x, y, num, word) {
+  fb.drawText(x, y, num, 1, LEVEL.text);
+  fb.drawText(x + textWidth(num) + HEADER_GAP, y, word, 1, LEVEL.label);
+}
+
 function errorLabel(err) {
   if (err.kind === 'auth') return 'AUTH ERROR';
   if (err.kind === 'network' || err.kind === 'timeout') return 'NET ERROR';
@@ -114,15 +122,17 @@ export function renderFrame(fb, state, config, { now = Date.now() } = {}) {
       fb.drawText(right - textWidth(age), oy, age, 1, LEVEL.muted);
     }
   } else {
-    // Busy is the large count on the left, so the header shows only the
-    // online count (left) and offline count (right), number bright, word dim.
+    // Busy is the large count on the left, so the header shows online (left),
+    // idle (centred in the gap) and offline (right): number bright, word dim.
     const online = status ? String(status.online) : '--';
-    fb.drawText(X, oy, online, 1, LEVEL.text);
-    fb.drawText(X + textWidth(online) + HEADER_GAP, oy, 'ONLINE', 1, LEVEL.label);
+    const idle = status ? String(status.online - status.busy) : '--';
     const offline = status ? String(status.offline) : '--';
-    const offX = right - (textWidth(offline) + HEADER_GAP + textWidth('OFF'));
-    fb.drawText(offX, oy, offline, 1, LEVEL.text);
-    fb.drawText(offX + textWidth(offline) + HEADER_GAP, oy, 'OFF', 1, LEVEL.label);
+    const offX = right - countWidth(offline, 'OFF');
+    const gapLeft = X + countWidth(online, 'ONLINE');
+    const idleX = Math.round((gapLeft + offX - countWidth(idle, 'IDLE')) / 2);
+    drawCount(fb, X, oy, online, 'ONLINE');
+    drawCount(fb, idleX, oy, idle, 'IDLE');
+    drawCount(fb, offX, oy, offline, 'OFF');
   }
 
   // Bar chart, newest on the right.

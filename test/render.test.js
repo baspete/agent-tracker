@@ -89,34 +89,41 @@ function barHeight(fb, x) {
   return h;
 }
 
-// Expected header: "<online> ONLINE" left, "<offline> OFF" right-aligned.
-function headerMatches(fb, online, offline) {
+// Expected header: "<online> ONLINE" left, "<offline> OFF" right-aligned, and
+// "<idle> IDLE" centred in the gap between them.
+function headerMatches(fb, online, idle, offline) {
   const w = (t) => t.length * 6 - 1;
-  const offX = WIDTH - MARGIN - (w(offline) + 5 + w('OFF'));
+  const cw = (num, word) => w(num) + 5 + w(word);
+  const offX = WIDTH - MARGIN - cw(offline, 'OFF');
+  const idleX = Math.round((X + cw(online, 'ONLINE') + offX - cw(idle, 'IDLE')) / 2);
   return (
     textMatches(fb, X, MARGIN, online, LEVEL.text) &&
     textMatches(fb, X + w(online) + 5, MARGIN, 'ONLINE', LEVEL.label) &&
+    textMatches(fb, idleX, MARGIN, idle, LEVEL.text) &&
+    textMatches(fb, idleX + w(idle) + 5, MARGIN, 'IDLE', LEVEL.label) &&
     textMatches(fb, offX, MARGIN, offline, LEVEL.text) &&
     textMatches(fb, offX + w(offline) + 5, MARGIN, 'OFF', LEVEL.label)
   );
 }
 
-test('header shows online and offline counts, not busy', () => {
+test('header shows online, idle and offline counts, not busy', () => {
   const fb = render(live(status(7, 5, 2)));
-  assert.ok(headerMatches(fb, '12', '2'));
-  // nothing between the two groups (no "7/" busy prefix)
-  const mid = region(fb, X + 60, MARGIN, WIDTH - MARGIN - 40, MARGIN + 7);
-  assert.ok(mid.every((v) => v === 0));
+  assert.ok(headerMatches(fb, '12', '5', '2'));
 });
 
-test('offline count is shown even when zero', () => {
-  const fb = render(live(status(0, 20, 0)));
-  assert.ok(headerMatches(fb, '20', '0'));
+test('idle is online minus busy, and zero counts are shown', () => {
+  assert.ok(headerMatches(render(live(status(0, 20, 0))), '20', '20', '0'));
+  assert.ok(headerMatches(render(live(status(20, 0, 0))), '20', '0', '0'));
+});
+
+test('three-digit counts in the header do not overlap', () => {
+  const fb = render(live(status(0, 188, 188)));
+  assert.ok(headerMatches(fb, '188', '188', '188'));
 });
 
 test('placeholders before the first poll', () => {
   const fb = render({ status: null, history: [], lastError: null, lastSuccessAt: null });
-  assert.ok(headerMatches(fb, '--', '--'));
+  assert.ok(headerMatches(fb, '--', '--', '--'));
   // big "--" lights the left panel; no squares drawn
   assert.ok(region(fb, 0, 0, 79, 50).some((v) => v === LEVEL.count));
   assert.ok(region(fb, X, MARGIN + SQUARES_Y, WIDTH, HEIGHT).every((v) => v === 0));
