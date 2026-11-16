@@ -1,31 +1,31 @@
 # Build Agent Tracker
 
 A Raspberry Pi app that shows how many Azure DevOps agents in a pool are busy,
-as a text line plus a scrolling bar chart on a 128x64 SSD1306 I2C OLED display.
+as a text line plus a scrolling bar chart on a 3.12" 256x64 SSD1322 greyscale
+OLED driven over SPI.
 
 ## Hardware and wiring
 
-1. **A Raspberry Pi** - a 3B+ works fine, but anything with I2C will do.
-1. **An SSD1306-based I2C OLED display** (128x64), usually at address `0x3c`.
+1. **A Raspberry Pi** - a 3B+ works fine.
+1. **A 3.12" SSD1322 OLED** (256x64, 16 grey levels) set up for 4-wire SPI.
+   Power it from **3.3V, not 5V**.
 
-| Physical Pin | Logical Pin | Connect To     |
-| ------------ | ----------- | -------------- |
-| 3            | SDA         | Display SDA    |
-| 4            | 5V          | Display Vcc    |
-| 5            | SCL         | Display SCL    |
-| 6            | Ground      | Display Ground |
+| Display pin | Pi physical pin | Pi function     |
+| ----------- | --------------- | --------------- |
+| GND         | 6               | Ground          |
+| VCC         | 1               | 3.3V            |
+| SCK         | 23              | SPI0 SCLK       |
+| SDA         | 19              | SPI0 MOSI       |
+| RES         | 22              | GPIO25          |
+| DC          | 18              | GPIO24          |
+| CS          | 24              | SPI0 CE0        |
 
-## Enable I2C
+## Enable SPI
 
-Enable I2C via `raspi-config` (Interface Options -> I2C), or see
-https://github.com/fivdi/i2c-bus/blob/master/doc/raspberry-pi-i2c.md#configuring-i2c-with-raspi-config
-
-Verify the display is visible:
-
-```
-sudo apt install i2c-tools
-i2cdetect -y 1
-```
+`scripts/provision.sh` enables SPI for you (`raspi-config nonint do_spi 0`)
+and installs `libgpiod-dev`, which `node-libgpiod` needs to build. By hand:
+`raspi-config` -> Interface Options -> SPI, then reboot and check that
+`/dev/spidev0.0` and `/dev/gpiochip0` exist.
 
 ## Provision the Pi
 
@@ -38,9 +38,9 @@ scripts/provision.sh [host]        # default: pi@agent-tracker.local
 It is idempotent and, as root on the Pi:
 
 - checks architecture (arm/aarch64) and Debian bookworm, Node >= 20.12, yarn
-- installs missing apt packages (`build-essential`, `python3`, `i2c-tools`)
-- enables I2C if needed (prints REBOOT REQUIRED)
-- creates the `agent-tracker` system user (nologin, group `i2c`)
+- installs missing apt packages (`build-essential`, `python3`, `libgpiod-dev`)
+- enables SPI if needed (prints REBOOT REQUIRED)
+- creates the `agent-tracker` system user (nologin, groups `spi` and `gpio`)
 - creates `/opt/agent-tracker` (pi:pi) and `/etc/agent-tracker` (root:agent-tracker)
 - installs `/etc/agent-tracker/env` from your old `.env` or the template
 - installs and enables the systemd unit
@@ -49,9 +49,14 @@ It is idempotent and, as root on the Pi:
 - enables the hardware watchdog (`RuntimeWatchdogSec=15`)
 - caps journald at 200M
 
-The only dependency, `i2c-bus`, is a native optional dependency. A build
-failure on non-Linux machines is expected and harmless — use
-`DISPLAY_DRIVER=console` for local dev.
+The only dependencies, `spi-device` and `node-libgpiod` (libgpiod 1.x, which
+bookworm ships), are native optional dependencies. A build failure on non-Linux
+machines is expected and harmless — use `DISPLAY_DRIVER=console` for local dev.
+
+The systemd unit only allows `/dev/spidev0.0` and the GPIO chip devices
+(`char-gpiochip`; node-libgpiod opens every chip when it loads). If you change
+`SPI_BUS` or `SPI_DEVICE`, update `DeviceAllow=` in
+`deploy/agent-tracker.service` to match.
 
 ## Deploy
 
@@ -67,8 +72,8 @@ A deploy refuses to run on a dirty working tree, runs the test suite, then:
    `/opt/agent-tracker/releases/<UTC timestamp>-<shortsha>/`
 2. reuses `node_modules` if `yarn.lock` is unchanged, then
    `yarn install --frozen-lockfile --production`
-3. verifies `i2c-bus` actually loads (it's an optionalDependency, so yarn can
-   hide build failures)
+3. verifies `spi-device` and `node-libgpiod` actually load (they're
+   optionalDependencies, so yarn can hide build failures)
 4. flips the `current` symlink atomically (`previous` points at the old one)
    and restarts the service
 5. health-checks for up to 60s: the service must be active and log a line
@@ -132,11 +137,46 @@ or lost its scope — issue a new one.
 | `DEVOPS_PAT`              | (required)| PAT with Agent Pools (Read)               |
 | `POLL_INTERVAL_SECONDS`   | 30        | 10..3600                                  |
 | `REQUEST_TIMEOUT_SECONDS` | 10        | 1..60                                     |
-| `SAMPLES`                 | 10        | 1..64 bars on the chart                   |
-| `SCALE_MAX`               | 20        | Chart scale floor; auto-grows to fit data |
-| `DISPLAY_DRIVER`          | `ssd1306` | `ssd1306` or `console`                    |
-| `I2C_BUS`                 | 1         | I2C bus number                            |
-| `I2C_ADDRESS`             | `0x3c`    | Hex or decimal                            |
+| `SAMPLES`                 | 42        | 1..84 bars on the chart                   |
+| `SCALE_MAX`               | (unset)   | Chart scale floor; unset = pool size      |
+| `BRIGHTNESS`              | 8         | Daytime master contrast, 1..15            |
+| `PIXEL_SHIFT_MINUTES`     | 5         | Burn-in: move the frame 1px this often; 0 = off |
+| `NIGHT_START_HOUR`        | 22        | Local hour night dimming starts (0..23)   |
+| `NIGHT_END_HOUR`          | 7         | Local hour it ends; equal to start = off  |
+| `NIGHT_BRIGHTNESS`        | 5         | Master contrast at night, 1..15           |
+| `DISPLAY_DRIVER`          | `ssd1322` | `ssd1322` or `console`                    |
+| `DISPLAY_ROTATE`          | 0         | `0` or `180` (done in software)           |
+| `SPI_BUS`                 | 0         | `/dev/spidev<bus>.<device>`               |
+| `SPI_DEVICE`              | 0         | Chip select (0 = CE0)                     |
+| `SPI_SPEED_HZ`            | 4000000   | 100000..10000000                          |
+| `GPIO_CHIP`               | 0         | `/dev/gpiochip<n>`                        |
+| `DC_GPIO`                 | 24        | BCM line for DC                           |
+| `RESET_GPIO`              | 25        | BCM line for RES                          |
+
+## Display
+
+The left side shows the busy count in large digits. On the right:
+
+- a header with the online count on the left (`12 ONLINE`), the idle count
+  (online but not busy) in the middle (`5 IDLE`) and the number of jobs
+  waiting for an agent on the right (`3 QUEUED`), all shown even when zero
+  (`-- QUEUED` if the job-requests call failed); during an error it shows
+  the error (`AUTH ERROR`, `NET ERROR`, `API ERROR`) and how long ago the last
+  good poll was instead
+- a bar chart of the last `SAMPLES` busy counts (newest brightest), scaled to
+  the pool size, with a dim dashed line at the online count; it runs from
+  under the header to the bottom of the display
+
+In an elastic (scale-set) pool, Azure DevOps reports idle agents as
+`offline` / `Deallocated` until a job needs them. Those agents count as idle
+(available); only disabled agents count as offline. Self-hosted agents use
+their online/offline status.
+
+Burn-in protection: the whole frame moves by one pixel every
+`PIXEL_SHIFT_MINUTES`. The panel's master contrast is `BRIGHTNESS` by day and
+drops to `NIGHT_BRIGHTNESS` (never higher than `BRIGHTNESS`) between `NIGHT_START_HOUR` and `NIGHT_END_HOUR` (Pi local
+time). When no poll has succeeded for three poll intervals, the whole screen
+dims to about 35%.
 
 ## Local dev
 
@@ -144,8 +184,8 @@ or lost its scope — issue a new one.
 DISPLAY_DRIVER=console node app.js
 ```
 
-The console driver renders the framebuffer to stdout (2x downsampled) so you
-can develop without hardware.
+The console driver renders the framebuffer to stdout (2x downsampled, grey
+levels as `.:-=+*#%@`) so you can develop without hardware.
 
 ## Tests
 

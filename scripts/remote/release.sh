@@ -124,9 +124,9 @@ cmd_activate() {
   echo "installing dependencies"
   (cd "$dir" && yarn install --frozen-lockfile --production --non-interactive --no-progress)
 
-  echo "verifying i2c-bus loads"
-  if ! (cd "$dir" && node --input-type=module -e "await import('i2c-bus')"); then
-    die "i2c-bus failed to load in $dir; aborting before switch"
+  echo "verifying spi-device and node-libgpiod load"
+  if ! (cd "$dir" && node --input-type=module -e "await import('spi-device'); await import('node-libgpiod')"); then
+    die "spi-device or node-libgpiod failed to load in $dir; aborting before switch"
   fi
 
   since=$(date '+%Y-%m-%d %H:%M:%S')

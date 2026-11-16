@@ -1,7 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { fetchBusyAgentCount, DevOpsError } from '../src/devops.js';
+import {
+  fetchPoolStatus,
+  fetchQueuedJobCount,
+  fetchPoolSnapshot,
+  countQueued,
+  summarizeAgents,
+  DevOpsError,
+} from '../src/devops.js';
 
 const PAT = 'sekret-pat-value';
 const base = { org: 'my-org', poolId: 27, pat: PAT, timeoutMs: 5000 };
@@ -17,12 +24,71 @@ const agents = (...states) => ({
   value: states.map((s) => ({ provisioningState: s })),
 });
 
-test('200 counts only RunningRequest and Provisioning', async () => {
+test('200 counts only RunningRequest and Provisioning as busy', async () => {
   const fetchImpl = async () =>
     jsonResponse(
       agents('RunningRequest', 'Provisioning', 'Idle', 'RunningRequest', 'Offline')
     );
-  assert.equal(await fetchBusyAgentCount({ ...base, fetchImpl }), 3);
+  const s = await fetchPoolStatus({ ...base, fetchImpl });
+  assert.equal(s.busy, 3);
+  assert.equal(s.total, 5);
+});
+
+test('summarizeAgents: self-hosted agents use status', () => {
+  const s = summarizeAgents([
+    { status: 'online', enabled: true },
+    { status: 'offline', enabled: true },
+    { status: 'online', enabled: false },
+    {},
+  ]);
+  assert.deepEqual(s, {
+    busy: 0,
+    online: 1,
+    offline: 3,
+    total: 4,
+    agents: ['idle', 'offline', 'offline', 'offline'],
+  });
+});
+
+test('summarizeAgents: deallocated elastic agents count as idle', () => {
+  // Shape seen from a real scale-set pool with every VM deallocated.
+  const pool = Array.from({ length: 20 }, () => ({
+    status: 'offline',
+    provisioningState: 'Deallocated',
+    enabled: true,
+  }));
+  const s = summarizeAgents(pool);
+  assert.equal(s.busy, 0);
+  assert.equal(s.online, 20);
+  assert.equal(s.offline, 0);
+  assert.equal(s.total, 20);
+});
+
+test('summarizeAgents: elastic busy, idle and disabled', () => {
+  const s = summarizeAgents([
+    { status: 'offline', provisioningState: 'Deallocated', enabled: false },
+    { status: 'online', provisioningState: 'Idle', enabled: true },
+    { status: 'online', provisioningState: 'RunningRequest', enabled: true },
+    { status: 'offline', provisioningState: 'Provisioning', enabled: true },
+    { status: 'offline', provisioningState: 'Deallocating', enabled: true },
+  ]);
+  assert.deepEqual(s, {
+    busy: 2,
+    online: 4,
+    offline: 1,
+    total: 5,
+    agents: ['busy', 'busy', 'idle', 'idle', 'offline'],
+  });
+});
+
+test('summarizeAgents of an empty pool', () => {
+  assert.deepEqual(summarizeAgents([]), {
+    busy: 0,
+    online: 0,
+    offline: 0,
+    total: 0,
+    agents: [],
+  });
 });
 
 test('exact URL and Authorization header', async () => {
@@ -31,7 +97,7 @@ test('exact URL and Authorization header', async () => {
     seen = { url, opts };
     return jsonResponse(agents());
   };
-  await fetchBusyAgentCount({ ...base, fetchImpl });
+  await fetchPoolStatus({ ...base, fetchImpl });
   assert.equal(
     seen.url,
     'https://dev.azure.com/my-org/_apis/distributedtask/pools/27/agents?api-version=7.1'
@@ -54,7 +120,7 @@ for (const [label, res] of [
   test(`${label} gives kind=auth`, async () => {
     const fetchImpl = async () => res.clone();
     await assert.rejects(
-      fetchBusyAgentCount({ ...base, fetchImpl }),
+      fetchPoolStatus({ ...base, fetchImpl }),
       (err) => {
         assert.ok(err instanceof DevOpsError);
         assert.equal(err.kind, 'auth');
@@ -66,7 +132,7 @@ for (const [label, res] of [
 
 test('500 gives kind=http', async () => {
   const fetchImpl = async () => jsonResponse({}, 500);
-  await assert.rejects(fetchBusyAgentCount({ ...base, fetchImpl }), (err) => {
+  await assert.rejects(fetchPoolStatus({ ...base, fetchImpl }), (err) => {
     assert.equal(err.kind, 'http');
     assert.equal(err.status, 500);
     return true;
@@ -76,7 +142,7 @@ test('500 gives kind=http', async () => {
 test('429 with Retry-After: 120 gives retryAfterMs 120000', async () => {
   const fetchImpl = async () =>
     jsonResponse({}, 429, { 'retry-after': '120' });
-  await assert.rejects(fetchBusyAgentCount({ ...base, fetchImpl }), (err) => {
+  await assert.rejects(fetchPoolStatus({ ...base, fetchImpl }), (err) => {
     assert.equal(err.kind, 'http');
     assert.equal(err.retryAfterMs, 120000);
     return true;
@@ -85,7 +151,7 @@ test('429 with Retry-After: 120 gives retryAfterMs 120000', async () => {
 
 test('non-array value gives kind=parse', async () => {
   const fetchImpl = async () => jsonResponse({ value: 'nope' });
-  await assert.rejects(fetchBusyAgentCount({ ...base, fetchImpl }), (err) => {
+  await assert.rejects(fetchPoolStatus({ ...base, fetchImpl }), (err) => {
     assert.equal(err.kind, 'parse');
     return true;
   });
@@ -97,7 +163,7 @@ test('text/html 200 gives kind=parse', async () => {
       status: 200,
       headers: { 'content-type': 'text/html' },
     });
-  await assert.rejects(fetchBusyAgentCount({ ...base, fetchImpl }), (err) => {
+  await assert.rejects(fetchPoolStatus({ ...base, fetchImpl }), (err) => {
     assert.equal(err.kind, 'parse');
     return true;
   });
@@ -107,7 +173,7 @@ test('TypeError with cause.code gives kind=network with code', async () => {
   const fetchImpl = async () => {
     throw new TypeError('fetch failed', { cause: { code: 'EAI_AGAIN' } });
   };
-  await assert.rejects(fetchBusyAgentCount({ ...base, fetchImpl }), (err) => {
+  await assert.rejects(fetchPoolStatus({ ...base, fetchImpl }), (err) => {
     assert.equal(err.kind, 'network');
     assert.equal(err.code, 'EAI_AGAIN');
     return true;
@@ -122,7 +188,7 @@ test('timeoutMs expiry gives kind=timeout', async () => {
       );
     });
   await assert.rejects(
-    fetchBusyAgentCount({ ...base, timeoutMs: 20, fetchImpl }),
+    fetchPoolStatus({ ...base, timeoutMs: 20, fetchImpl }),
     (err) => {
       assert.equal(err.kind, 'timeout');
       return true;
@@ -142,7 +208,7 @@ test('401 response body is cancelled before throwing', async () => {
     },
   });
   const fetchImpl = async () => new Response(body, { status: 401 });
-  await assert.rejects(fetchBusyAgentCount({ ...base, fetchImpl }), (err) => {
+  await assert.rejects(fetchPoolStatus({ ...base, fetchImpl }), (err) => {
     assert.equal(err.kind, 'auth');
     return true;
   });
@@ -157,7 +223,7 @@ test('hanging body gives kind=timeout when timeoutMs expires', async () => {
       headers: { 'content-type': 'application/json' },
     });
   await assert.rejects(
-    fetchBusyAgentCount({ ...base, timeoutMs: 20, fetchImpl }),
+    fetchPoolStatus({ ...base, timeoutMs: 20, fetchImpl }),
     (err) => {
       assert.equal(err.kind, 'timeout');
       return true;
@@ -173,7 +239,7 @@ test('caller abort while reading body rethrows the abort error', async () => {
       status: 200,
       headers: { 'content-type': 'application/json' },
     });
-  const p = fetchBusyAgentCount({ ...base, signal: ac.signal, fetchImpl });
+  const p = fetchPoolStatus({ ...base, signal: ac.signal, fetchImpl });
   setTimeout(() => ac.abort(), 10);
   await assert.rejects(p, (err) => {
     assert.ok(!(err instanceof DevOpsError));
@@ -190,7 +256,7 @@ test('caller abort rethrows the abort error', async () => {
         reject(new DOMException('This operation was aborted', 'AbortError'))
       );
     });
-  const p = fetchBusyAgentCount({ ...base, signal: ac.signal, fetchImpl });
+  const p = fetchPoolStatus({ ...base, signal: ac.signal, fetchImpl });
   ac.abort();
   await assert.rejects(p, (err) => {
     assert.ok(!(err instanceof DevOpsError));
@@ -211,7 +277,7 @@ test('PAT never appears in any error', async () => {
   ];
   for (const fetchImpl of cases) {
     await assert.rejects(
-      fetchBusyAgentCount({ ...base, fetchImpl }),
+      fetchPoolStatus({ ...base, fetchImpl }),
       (err) => {
         assert.ok(!String(err).includes(PAT), String(err));
         assert.ok(!err.message.includes(PAT));
@@ -219,4 +285,66 @@ test('PAT never appears in any error', async () => {
       }
     );
   }
+});
+
+test('fetchQueuedJobCount asks only for unfinished requests', async () => {
+  let seenUrl;
+  const fetchImpl = async (url) => {
+    seenUrl = url;
+    return jsonResponse({ count: 0, value: [] });
+  };
+  assert.equal(await fetchQueuedJobCount({ ...base, fetchImpl }), 0);
+  assert.equal(
+    seenUrl,
+    'https://dev.azure.com/my-org/_apis/distributedtask/pools/27/jobrequests?api-version=7.1&completedRequestCount=0'
+  );
+});
+
+test('countQueued counts requests with no agent assigned yet', () => {
+  assert.equal(
+    countQueued([
+      { requestId: 1, queueTime: 't' }, // queued
+      { requestId: 2, queueTime: 't' }, // queued
+      { requestId: 3, queueTime: 't', assignTime: 't' }, // running
+      { requestId: 4, assignTime: 't', finishTime: 't', result: 'succeeded' },
+      { requestId: 5, finishTime: 't', result: 'canceled' }, // cancelled while queued
+      null,
+    ]),
+    2
+  );
+});
+
+test('fetchPoolSnapshot combines agent status and queued count', async () => {
+  const fetchImpl = async (url) =>
+    url.includes('/jobrequests')
+      ? jsonResponse({ value: [{ queueTime: 't' }] })
+      : jsonResponse({
+          value: [{ status: 'online', provisioningState: 'RunningRequest' }],
+        });
+  const s = await fetchPoolSnapshot({ ...base, fetchImpl });
+  assert.equal(s.busy, 1);
+  assert.equal(s.queued, 1);
+  assert.equal(s.queuedErrorKind, null);
+});
+
+test('fetchPoolSnapshot keeps the status when only the queue request fails', async () => {
+  const fetchImpl = async (url) =>
+    url.includes('/jobrequests')
+      ? jsonResponse({}, 500)
+      : jsonResponse({ value: [{ status: 'online' }] });
+  const s = await fetchPoolSnapshot({ ...base, fetchImpl });
+  assert.equal(s.online, 1);
+  assert.equal(s.queued, null);
+  assert.equal(s.queuedErrorKind, 'http');
+});
+
+test('fetchPoolSnapshot rejects when the agents request fails', async () => {
+  const fetchImpl = async (url) =>
+    url.includes('/jobrequests')
+      ? jsonResponse({ value: [] })
+      : jsonResponse({}, 401);
+  await assert.rejects(fetchPoolSnapshot({ ...base, fetchImpl }), (err) => {
+    assert.equal(err.kind, 'auth');
+    return true;
+  });
 });

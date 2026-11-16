@@ -14,7 +14,8 @@
     "test": "node --test"
   },
   "optionalDependencies": {
-    "i2c-bus": "5.2.3"
+    "node-libgpiod": "0.6.0",
+    "spi-device": "3.1.2"
   },
   "prettier": {
     "singleQuote": true

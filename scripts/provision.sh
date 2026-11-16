@@ -68,7 +68,7 @@ say ok "preflight ($arch, bookworm, node $(node --version), yarn $(yarn --versio
 
 echo '== apt packages'
 missing=''
-for pkg in build-essential python3 i2c-tools; do
+for pkg in build-essential python3 libgpiod-dev; do
   dpkg -s "$pkg" >/dev/null 2>&1 || missing="$missing $pkg"
 done
 if [[ -n $missing ]]; then
@@ -79,12 +79,12 @@ else
   say ok 'apt packages already installed'
 fi
 
-echo '== i2c'
-if grep -qE '^dtparam=i2c_arm=on' /boot/firmware/config.txt; then
-  say ok 'i2c_arm already enabled'
+echo '== spi'
+if grep -qE '^dtparam=spi=on' /boot/firmware/config.txt; then
+  say ok 'spi already enabled'
 else
-  raspi-config nonint do_i2c 0
-  say changed 'i2c enabled - REBOOT REQUIRED'
+  raspi-config nonint do_spi 0
+  say changed 'spi enabled - REBOOT REQUIRED'
 fi
 
 echo '== service user'
@@ -94,12 +94,18 @@ if ! id "$APP_USER" >/dev/null 2>&1; then
 else
   say ok "user $APP_USER exists"
 fi
-if id -nG "$APP_USER" | tr ' ' '\n' | grep -qx i2c; then
-  say ok "$APP_USER is in group i2c"
-else
-  usermod -aG i2c "$APP_USER"
-  say changed "added $APP_USER to group i2c"
-fi
+for grp in spi gpio; do
+  if ! getent group "$grp" >/dev/null; then
+    echo "group $grp does not exist (is this Raspberry Pi OS?)" >&2
+    exit 1
+  fi
+  if id -nG "$APP_USER" | tr ' ' '\n' | grep -qx "$grp"; then
+    say ok "$APP_USER is in group $grp"
+  else
+    usermod -aG "$grp" "$APP_USER"
+    say changed "added $APP_USER to group $grp"
+  fi
+done
 
 echo '== directories'
 if [[ -d /opt/agent-tracker ]]; then

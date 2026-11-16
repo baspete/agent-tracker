@@ -68,7 +68,7 @@ EOF
 cat >"$STUB/node" <<'EOF'
 #!/usr/bin/env bash
 if [[ ${NODE_FAIL:-0} == 1 ]]; then
-  echo 'i2c-bus stub failure' >&2
+  echo 'native module (spi-device/node-libgpiod) stub failure' >&2
   exit 1
 fi
 exit 0
@@ -140,10 +140,10 @@ mkrelease r4
 if NODE_FAIL=1 bash "$RELEASE_SH" activate r4 >/dev/null 2>&1; then
   bad 'NODE_FAIL deploy should exit non-zero'
 else
-  ok 'i2c-bus load failure exits non-zero'
+  ok 'native module load failure exits non-zero'
 fi
 [[ $(target current) == 'releases/r2' ]] &&
-  ok 'current untouched after i2c-bus failure' ||
+  ok 'current untouched after native module failure' ||
   bad "current after NODE_FAIL=$(target current)"
 
 # ---- 5. rollback subcommand swaps current and previous ----------------------

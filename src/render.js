@@ -1,53 +1,170 @@
-import { WIDTH } from './framebuffer.js';
+import { WIDTH, HEIGHT } from './framebuffer.js';
 import { CELL_WIDTH } from './font5x7.js';
+import { drawBigNumber } from './bigdigits.js';
 
-const CHART_TOP = 16;
-const HEADER_HEIGHT = 16;
-const TEXT_SCALE = 1;
-const GLYPH_HEIGHT = 7;
-const BASELINE_ROW = 63;
-const MAX_BAR_HEIGHT = 47;
+// Layout (relative to the content origin, which moves for pixel shift):
+//   left panel   x 0..78   large busy count, "BUSY" label
+//   divider      x 79
+//   right panel  x 86..253 header, bar chart down to the bottom row
+export const MARGIN = 1; // room for the +/-1px burn-in shift
+const CONTENT_W = WIDTH - 2 * MARGIN; // 254
+const LEFT_CX = 39;
+const DIVIDER_X = 79;
+export const CHART_X = 86;
+export const CHART_W = CONTENT_W - CHART_X; // 168
+const CONTENT_H = HEIGHT - 2 * MARGIN; // 62
+export const CHART_TOP = 10;
+export const CHART_BASE = CONTENT_H - 2; // 60: lowest bar row; baseline below it
+const CHART_H = CHART_BASE - CHART_TOP + 1; // 51
 
-function headerText(state) {
-  const err = state.lastError;
-  if (err) {
-    if (err.kind === 'auth') return 'AUTH ERROR';
-    if (err.kind === 'network' || err.kind === 'timeout') return 'NET ERROR';
-    return 'API ERROR';
-  }
-  return `AGENTS ${state.lastValue ?? '--'}`;
+// Grey levels (0..15) before the panel's master contrast is applied. Nothing
+// uses full 15: the numbers were too glaring at that level.
+export const LEVEL = Object.freeze({
+  count: 10,
+  text: 10,
+  label: 6,
+  muted: 5,
+  divider: 2,
+  baseline: 2,
+  onlineLine: 3,
+  bar: 8,
+  newestBar: 11,
+});
+
+// Small, slow cycle of offsets; each step moves at most one pixel.
+export const SHIFT_SEQUENCE = [
+  [0, 0], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1],
+];
+
+export function pixelShift(nowMs, minutes) {
+  if (!minutes) return [0, 0];
+  const step = Math.floor(nowMs / (minutes * 60_000));
+  return SHIFT_SEQUENCE[step % SHIFT_SEQUENCE.length];
 }
 
-export function renderFrame(fb, state, config) {
-  fb.clear();
-  const text = headerText(state);
-  const textW = text.length * CELL_WIDTH * TEXT_SCALE - TEXT_SCALE;
-  fb.drawText(
-    Math.max(0, Math.floor((WIDTH - textW) / 2)),
-    Math.floor((HEADER_HEIGHT - GLYPH_HEIGHT * TEXT_SCALE) / 2),
-    text,
-    TEXT_SCALE
+const textWidth = (s) => s.length * CELL_WIDTH - 1;
+const HEADER_GAP = 5; // px between a header number and its word
+
+const countWidth = (num, word) => textWidth(num) + HEADER_GAP + textWidth(word);
+
+// "<num> <word>" with the number at text level and the word at label level.
+function drawCount(fb, x, y, num, word) {
+  fb.drawText(x, y, num, 1, LEVEL.text);
+  fb.drawText(x + textWidth(num) + HEADER_GAP, y, word, 1, LEVEL.label);
+}
+
+function errorLabel(err) {
+  if (err.kind === 'auth') return 'AUTH ERROR';
+  if (err.kind === 'network' || err.kind === 'timeout') return 'NET ERROR';
+  return 'API ERROR';
+}
+
+export function formatAge(ms) {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  return `${Math.floor(s / 3600)}h ago`;
+}
+
+export function chartScale(state, config) {
+  return Math.max(
+    1,
+    config.scaleMax ?? 0,
+    state.status?.total ?? 0,
+    ...state.history
   );
+}
 
+export function renderFrame(fb, state, config, { now = Date.now() } = {}) {
+  fb.clear();
+  const [dx, dy] = pixelShift(now, config.pixelShiftMinutes);
+  const ox = MARGIN + dx;
+  const oy = MARGIN + dy;
+  const status = state.status ?? null;
+
+  // Left: large busy count.
+  drawBigNumber(fb, ox + LEFT_CX, oy + 1, status ? String(status.busy) : '--', {
+    maxWidth: DIVIDER_X - 4,
+    level: LEVEL.count,
+  });
+  fb.drawText(ox + LEFT_CX - Math.floor(textWidth('BUSY') / 2), oy + 53, 'BUSY', 1, LEVEL.label);
+  fb.fillRect(ox + DIVIDER_X, oy + 2, 1, CONTENT_H - 2, LEVEL.divider);
+
+  // Right header.
+  const X = ox + CHART_X;
+  const right = ox + CONTENT_W;
+  if (state.lastError) {
+    fb.drawText(X, oy, errorLabel(state.lastError), 1, LEVEL.text);
+    if (state.lastSuccessAt != null) {
+      const age = formatAge(now - state.lastSuccessAt);
+      fb.drawText(right - textWidth(age), oy, age, 1, LEVEL.muted);
+    }
+  } else {
+    // Busy is the large count on the left, so the header shows online (left),
+    // idle (centred in the gap) and queued jobs (right): number bright, word
+    // dim. Queued is "--" if its request failed.
+    const online = status ? String(status.online) : '--';
+    const idle = status ? String(status.online - status.busy) : '--';
+    const queued = status?.queued != null ? String(status.queued) : '--';
+    const queuedX = right - countWidth(queued, 'QUEUED');
+    const gapLeft = X + countWidth(online, 'ONLINE');
+    const idleX = Math.round((gapLeft + queuedX - countWidth(idle, 'IDLE')) / 2);
+    drawCount(fb, X, oy, online, 'ONLINE');
+    drawCount(fb, idleX, oy, idle, 'IDLE');
+    drawCount(fb, queuedX, oy, queued, 'QUEUED');
+  }
+
+  // Bar chart, newest on the right.
+  const scale = chartScale(state, config);
   const samples = config.samples;
+  const colW = Math.max(1, Math.floor(CHART_W / samples));
+  const barW = Math.max(1, colW - 1);
+  const chartLeft = X + CHART_W - colW * samples;
+  const base = oy + CHART_BASE;
   const history = state.history;
-  const colW = Math.floor(WIDTH / samples);
-  const scaleMax = Math.max(config.scaleMax, ...history);
-
   for (let slot = 0; slot < samples; slot++) {
-    const x = slot * colW;
-    const barW = colW - 1;
-    if (barW <= 0) continue;
-    fb.fillRect(x, BASELINE_ROW, barW, 1);
     const hi = history.length - samples + slot;
     if (hi < 0) continue;
-    const value = history[hi];
     const h = Math.min(
-      Math.max(Math.round((value / scaleMax) * MAX_BAR_HEIGHT), 0),
-      MAX_BAR_HEIGHT
+      CHART_H,
+      Math.max(0, Math.round((history[hi] / scale) * CHART_H))
     );
     if (h > 0) {
-      fb.fillRect(x, BASELINE_ROW - h, barW, h);
+      const level = hi === history.length - 1 ? LEVEL.newestBar : LEVEL.bar;
+      fb.fillRect(chartLeft + slot * colW, base - h + 1, barW, h, level);
     }
   }
+  fb.fillRect(chartLeft, base + 1, colW * samples, 1, LEVEL.baseline);
+  if (status) {
+    const lineH = Math.round((status.online / scale) * CHART_H);
+    const y = base - lineH + 1;
+    for (let x = chartLeft; x < chartLeft + colW * samples; x += 4) {
+      fb.fillRect(x, y, 2, 1, LEVEL.onlineLine);
+    }
+  }
+
+}
+
+// Master brightness (SSD1322 master contrast, 0..15) for this moment.
+export function brightnessFor(state, config, now) {
+  let level = config.brightness ?? 15;
+  if (isNight(now, config.nightStartHour, config.nightEndHour)) {
+    level = Math.min(level, config.nightBrightness);
+  }
+  if (isStale(state, config, now)) {
+    level = Math.max(1, Math.round(level * 0.35));
+  }
+  return level;
+}
+
+export function isNight(now, start, end) {
+  if (start == null || end == null || start === end) return false;
+  const hour = new Date(now).getHours();
+  return start < end ? hour >= start && hour < end : hour >= start || hour < end;
+}
+
+// Stale once the last good poll is older than three poll intervals.
+export function isStale(state, config, now) {
+  if (state.lastSuccessAt == null) return state.lastError != null;
+  return now - state.lastSuccessAt > 3 * config.pollIntervalSeconds * 1000;
 }

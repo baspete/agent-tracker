@@ -4,6 +4,20 @@ import assert from 'node:assert/strict';
 import { createTracker } from '../src/tracker.js';
 import { DevOpsError } from '../src/devops.js';
 
+// Builds a pool status with `busy` busy agents out of 12 online, 2 offline.
+const st = (busy) => ({
+  busy,
+  online: 12,
+  offline: 2,
+  total: 14,
+  agents: [
+    ...Array(busy).fill('busy'),
+    ...Array(12 - busy).fill('idle'),
+    'offline',
+    'offline',
+  ],
+});
+
 const PAT = 'sekret-pat-value';
 const config = { samples: 3, scaleMax: 20, pollIntervalSeconds: 30 };
 
@@ -31,10 +45,11 @@ function fakeDisplay(overrides = {}) {
   };
 }
 
-function makeTracker({ fetchCount, display, log }) {
+function makeTracker({ fetchCount, display, log, now }) {
   return createTracker({
     config,
-    fetchCount,
+    fetchStatus: async (signal) => st(await fetchCount(signal)),
+    now,
     display: display ?? fakeDisplay(),
     log: log ?? spyLog(),
   });
@@ -118,7 +133,7 @@ test('value logged only on change, plus recovery line', async () => {
 test('display.show throwing returns a delay and calls reset', async () => {
   const display = fakeDisplay({
     async show() {
-      throw new Error('i2c write failed');
+      throw new Error('spi write failed');
     },
   });
   const log = spyLog();
@@ -136,7 +151,7 @@ test('display.show hanging returns a delay and calls reset', async () => {
   const log = spyLog();
   const t = createTracker({
     config,
-    fetchCount: async () => 1,
+    fetchStatus: async () => st(1),
     display,
     log,
     showTimeoutMs: 20,
@@ -222,5 +237,97 @@ test('failure log line shape', async () => {
   assert.equal(
     log.lines[1],
     'error: poll failed: kind=network code=EAI_AGAIN status=- failures=2 retry_in=60s'
+  );
+});
+
+test('success stores the full status and pushes busy to history', async () => {
+  const t = makeTracker({ fetchCount: async () => 5 });
+  await t.tick();
+  assert.equal(t.state.status.online, 12);
+  assert.deepEqual(t.state.history, [5]);
+  assert.equal(t.state.lastValue, 5);
+});
+
+test('brightness is sent only when it changes', async () => {
+  const sent = [];
+  const display = fakeDisplay({
+    async setBrightness(level) {
+      sent.push(level);
+    },
+  });
+  let clock = new Date(2026, 0, 5, 12, 0).getTime();
+  let fail = false;
+  const t = createTracker({
+    config: {
+      ...config,
+      nightStartHour: 22,
+      nightEndHour: 7,
+      nightBrightness: 5,
+    },
+    fetchStatus: async () => {
+      if (fail) throw new DevOpsError('network', 'network error');
+      return st(3);
+    },
+    display,
+    log: spyLog(),
+    now: () => clock,
+  });
+  await t.tick(); // day
+  await t.tick(); // day, unchanged
+  clock = new Date(2026, 0, 5, 23, 0).getTime();
+  await t.tick(); // night
+  fail = true;
+  clock += 5 * 60_000; // > 3 poll intervals since the last success
+  await t.tick(); // night + stale
+  assert.deepEqual(sent, [15, 5, 2]);
+});
+
+test('brightness is re-sent after a display error', async () => {
+  const sent = [];
+  let failShow = true;
+  const display = fakeDisplay({
+    async setBrightness(level) {
+      sent.push(level);
+    },
+    async show() {
+      if (failShow) throw new Error('spi write failed');
+    },
+  });
+  const t = createTracker({
+    config,
+    fetchStatus: async () => st(1),
+    display,
+    log: spyLog(),
+    now: () => new Date(2026, 0, 5, 12, 0).getTime(),
+  });
+  await t.tick();
+  failShow = false;
+  await t.tick();
+  assert.deepEqual(sent, [15, 15]);
+});
+
+test('queued count is logged on change and queue errors on transition', async () => {
+  const log = spyLog();
+  const snaps = [
+    { ...st(2), queued: 0, queuedErrorKind: null },
+    { ...st(2), queued: 0, queuedErrorKind: null },
+    { ...st(2), queued: 3, queuedErrorKind: null },
+    { ...st(2), queued: null, queuedErrorKind: 'http' },
+    { ...st(2), queued: null, queuedErrorKind: 'http' },
+  ];
+  const t = createTracker({
+    config,
+    fetchStatus: async () => snaps.shift(),
+    display: fakeDisplay(),
+    log,
+  });
+  for (let i = 0; i < 5; i++) await t.tick();
+  assert.deepEqual(
+    log.lines.filter((l) => /queued/.test(l)),
+    [
+      'info: jobs queued: 0',
+      'info: jobs queued: 3',
+      'error: queued jobs unavailable: kind=http',
+    ]
   );
 });

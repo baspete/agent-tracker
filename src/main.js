@@ -3,9 +3,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { loadConfig, ConfigError } from './config.js';
-import { fetchBusyAgentCount } from './devops.js';
+import { fetchPoolSnapshot } from './devops.js';
 import { createTracker } from './tracker.js';
-import { createSsd1306 } from './displays/ssd1306.js';
+import { createSsd1322 } from './displays/ssd1322.js';
 import { createConsoleDisplay } from './displays/console.js';
 
 const SHUTDOWN_GRACE_MS = 3_000;
@@ -31,10 +31,18 @@ export async function main() {
   const display =
     config.displayDriver === 'console'
       ? createConsoleDisplay()
-      : createSsd1306({ busNumber: config.i2cBus, address: config.i2cAddress });
+      : createSsd1322({
+          spiBus: config.spiBus,
+          spiDevice: config.spiDevice,
+          speedHz: config.spiSpeedHz,
+          gpioChip: config.gpioChip,
+          dcGpio: config.dcGpio,
+          resetGpio: config.resetGpio,
+          rotate: config.displayRotate,
+        });
 
-  const fetchCount = (signal) =>
-    fetchBusyAgentCount({
+  const fetchStatus = (signal) =>
+    fetchPoolSnapshot({
       org: config.org,
       poolId: config.poolId,
       pat: config.pat,
@@ -42,7 +50,7 @@ export async function main() {
       signal,
     });
 
-  const tracker = createTracker({ config, fetchCount, display });
+  const tracker = createTracker({ config, fetchStatus, display });
   const ac = new AbortController();
   const loopDone = tracker.run(ac.signal);
 
