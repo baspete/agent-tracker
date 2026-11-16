@@ -89,23 +89,34 @@ function barHeight(fb, x) {
   return h;
 }
 
-test('header shows busy/online, ONLINE label and offline count', () => {
+// Expected header: "<online> ONLINE" left, "<offline> OFF" right-aligned.
+function headerMatches(fb, online, offline) {
+  const w = (t) => t.length * 6 - 1;
+  const offX = WIDTH - MARGIN - (w(offline) + 5 + w('OFF'));
+  return (
+    textMatches(fb, X, MARGIN, online, LEVEL.text) &&
+    textMatches(fb, X + w(online) + 5, MARGIN, 'ONLINE', LEVEL.label) &&
+    textMatches(fb, offX, MARGIN, offline, LEVEL.text) &&
+    textMatches(fb, offX + w(offline) + 5, MARGIN, 'OFF', LEVEL.label)
+  );
+}
+
+test('header shows online and offline counts, not busy', () => {
   const fb = render(live(status(7, 5, 2)));
-  assert.ok(textMatches(fb, X, MARGIN, '7/12', LEVEL.text));
-  assert.ok(textMatches(fb, X + 4 * 6 - 1 + 5, MARGIN, 'ONLINE', LEVEL.label));
-  const off = '2 OFF';
-  assert.ok(textMatches(fb, WIDTH - MARGIN - (off.length * 6 - 1), MARGIN, off, LEVEL.muted));
+  assert.ok(headerMatches(fb, '12', '2'));
+  // nothing between the two groups (no "7/" busy prefix)
+  const mid = region(fb, X + 60, MARGIN, WIDTH - MARGIN - 40, MARGIN + 7);
+  assert.ok(mid.every((v) => v === 0));
 });
 
-test('no offline count when every agent is online', () => {
-  const fb = render(live(status(3, 3, 0)));
-  const right = region(fb, WIDTH - 40, MARGIN, WIDTH, MARGIN + 7);
-  assert.ok(right.every((v) => v === 0));
+test('offline count is shown even when zero', () => {
+  const fb = render(live(status(0, 20, 0)));
+  assert.ok(headerMatches(fb, '20', '0'));
 });
 
 test('placeholders before the first poll', () => {
   const fb = render({ status: null, history: [], lastError: null, lastSuccessAt: null });
-  assert.ok(textMatches(fb, X, MARGIN, '--/--', LEVEL.text));
+  assert.ok(headerMatches(fb, '--', '--'));
   // big "--" lights the left panel; no squares drawn
   assert.ok(region(fb, 0, 0, 79, 50).some((v) => v === 15));
   assert.ok(region(fb, X, MARGIN + SQUARES_Y, WIDTH, HEIGHT).every((v) => v === 0));

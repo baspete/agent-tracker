@@ -156,9 +156,10 @@ or lost its scope — issue a new one.
 
 The left side shows the busy count in large digits. On the right:
 
-- a header with busy/online (`7/12 ONLINE`) and the offline count, or the
-  error (`AUTH ERROR`, `NET ERROR`, `API ERROR`) and how long ago the last good
-  poll was
+- a header with the online count on the left (`12 ONLINE`) and the offline
+  count on the right (`2 OFF`, shown even when zero); during an error it shows
+  the error (`AUTH ERROR`, `NET ERROR`, `API ERROR`) and how long ago the last
+  good poll was instead
 - a bar chart of the last `SAMPLES` busy counts (newest brightest), scaled to
   the pool size, with a dim dashed line at the online count
 - one square per agent: bright = busy, dim = idle, outline = offline

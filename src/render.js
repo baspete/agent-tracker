@@ -44,6 +44,7 @@ export function pixelShift(nowMs, minutes) {
 }
 
 const textWidth = (s) => s.length * CELL_WIDTH - 1;
+const HEADER_GAP = 5; // px between a header number and its word
 
 function errorLabel(err) {
   if (err.kind === 'auth') return 'AUTH ERROR';
@@ -109,13 +110,15 @@ export function renderFrame(fb, state, config, { now = Date.now() } = {}) {
       fb.drawText(right - textWidth(age), oy, age, 1, LEVEL.muted);
     }
   } else {
-    const head = status ? `${status.busy}/${status.online}` : '--/--';
-    fb.drawText(X, oy, head, 1, LEVEL.text);
-    fb.drawText(X + textWidth(head) + 5, oy, 'ONLINE', 1, LEVEL.label);
-    if (status && status.offline > 0) {
-      const off = `${status.offline} OFF`;
-      fb.drawText(right - textWidth(off), oy, off, 1, LEVEL.muted);
-    }
+    // Busy is the large count on the left, so the header shows only the
+    // online count (left) and offline count (right), number bright, word dim.
+    const online = status ? String(status.online) : '--';
+    fb.drawText(X, oy, online, 1, LEVEL.text);
+    fb.drawText(X + textWidth(online) + HEADER_GAP, oy, 'ONLINE', 1, LEVEL.label);
+    const offline = status ? String(status.offline) : '--';
+    const offX = right - (textWidth(offline) + HEADER_GAP + textWidth('OFF'));
+    fb.drawText(offX, oy, offline, 1, LEVEL.text);
+    fb.drawText(offX + textWidth(offline) + HEADER_GAP, oy, 'OFF', 1, LEVEL.label);
   }
 
   // Bar chart, newest on the right.
